@@ -1,6 +1,10 @@
+import { useState } from 'react'
 import './App.css'
 
 function App() {
+  const [showImport, setShowImport] = useState(false)
+  const [importUrl, setImportUrl] = useState('')
+
   return (
     <div className="app">
       <header className="header">
@@ -58,15 +62,57 @@ function App() {
             ＋ Neues Rezept
           </button>
 
-          <button className="secondary">
+          <button
+            className="secondary"
+            onClick={() => setShowImport(true)}
+          >
             ⇩ Rezept importieren
           </button>
         </section>
       </main>
 
-      <footer>
-        Kochwerk v0.1.0
-      </footer>
+      <footer>Kochwerk v0.1.0</footer>
+
+      {showImport && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setShowImport(false)}
+        >
+          <div
+            className="import-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              className="modal-close"
+              onClick={() => setShowImport(false)}
+              aria-label="Schließen"
+            >
+              ×
+            </button>
+
+            <h2>Rezept importieren</h2>
+
+            <p>
+              Füge den Link zu einer Rezept-Webseite ein.
+            </p>
+
+            <input
+              className="import-input"
+              type="url"
+              value={importUrl}
+              onChange={(event) => setImportUrl(event.target.value)}
+              placeholder="https://www.beispiel.ch/rezept/..."
+            />
+
+            <button
+              className="import-button"
+              disabled={!importUrl.trim()}
+            >
+              Rezept einlesen
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

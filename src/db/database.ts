@@ -32,7 +32,7 @@ export interface Recipe {
   sourceUrl?: string
   sourceName?: string
   videoUrl?: string
-
+  sourceImageUrl?: string
   imageIds: number[]
 
   favorite: boolean

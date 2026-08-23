@@ -155,6 +155,19 @@ function App() {
 
   const [searchQuery, setSearchQuery] = useState('')
 
+  const [searchCategoryId, setSearchCategoryId] =
+    useState<number | 'all'>('all')
+
+  const [searchCollectionId, setSearchCollectionId] =
+    useState<number | 'all'>('all')
+
+  const [searchFavoritesOnly, setSearchFavoritesOnly] =
+    useState(false)
+
+  const [searchSort, setSearchSort] = useState<
+    'az' | 'updated'
+  >('az')
+
   const [backupMessage, setBackupMessage] =
     useState('')
 
@@ -343,8 +356,6 @@ function App() {
       .trim()
       .toLowerCase()
 
-    if (!query) return false
-
     const title =
       recipe.title?.toLowerCase() ?? ''
 
@@ -354,6 +365,15 @@ function App() {
       .map((ingredient) => ingredient.name)
       .join(' ')
       .toLowerCase()
+
+    const preparation = (
+      recipe.preparation ?? []
+    )
+      .join(' ')
+      .toLowerCase()
+
+    const notes =
+      recipe.description?.toLowerCase() ?? ''
 
     const source =
       recipe.sourceName?.toLowerCase() ?? ''
@@ -378,20 +398,60 @@ function App() {
       .join(' ')
       .toLowerCase()
 
-    return (
+    const matchesText =
+      !query ||
       title.includes(query) ||
       ingredients.includes(query) ||
+      preparation.includes(query) ||
+      notes.includes(query) ||
       source.includes(query) ||
       categoryNames.includes(query) ||
       collectionNames.includes(query)
+
+    const matchesCategory =
+      searchCategoryId === 'all' ||
+      (recipe.categoryIds ?? []).includes(
+        searchCategoryId,
+      )
+
+    const matchesCollection =
+      searchCollectionId === 'all' ||
+      (recipe.collectionIds ?? []).includes(
+        searchCollectionId,
+      )
+
+    const matchesFavorite =
+      !searchFavoritesOnly ||
+      Boolean(recipe.favorite)
+
+    return (
+      matchesText &&
+      matchesCategory &&
+      matchesCollection &&
+      matchesFavorite
     )
   }
 
   function startSearch() {
-    if (!searchQuery.trim()) return
+    if (
+      !searchQuery.trim() &&
+      searchCategoryId === 'all' &&
+      searchCollectionId === 'all' &&
+      !searchFavoritesOnly
+    ) {
+      return
+    }
 
     setSelectedRecipe(null)
     setView('search')
+  }
+
+  function resetSearchFilters() {
+    setSearchQuery('')
+    setSearchCategoryId('all')
+    setSearchCollectionId('all')
+    setSearchFavoritesOnly(false)
+    setSearchSort('az')
   }
 
   function createBackup() {
@@ -1938,9 +1998,29 @@ function App() {
       : []
 
   const searchResults =
-    recipes.filter(
-      recipeMatchesSearch,
-    )
+    recipes
+      .filter(
+        recipeMatchesSearch,
+      )
+      .sort((a, b) => {
+        if (searchSort === 'updated') {
+          const aTime = a.updatedAt
+            ? new Date(a.updatedAt).getTime()
+            : 0
+
+          const bTime = b.updatedAt
+            ? new Date(b.updatedAt).getTime()
+            : 0
+
+          return bTime - aTime
+        }
+
+        return a.title.localeCompare(
+          b.title,
+          'de',
+          { sensitivity: 'base' },
+        )
+      })
 
   return (
     <div className="app">
@@ -2407,11 +2487,13 @@ function App() {
                 </h2>
 
                 <p>
-                  {
-                    searchResults.length
-                  }{' '}
-                  Treffer für „
-                  {searchQuery}“
+                  {searchResults.length}{' '}
+                  {searchResults.length === 1
+                    ? 'Treffer'
+                    : 'Treffer'}
+                  {searchQuery.trim()
+                    ? ` für „${searchQuery.trim()}“`
+                    : ''}
                 </p>
               </div>
             </div>
@@ -2445,19 +2527,186 @@ function App() {
                 placeholder="Neue Suche …"
               />
 
-              <button
-                className="primary"
-                type="button"
-                onClick={
-                  startSearch
-                }
+              <div
                 style={{
-                  width: '100%',
-                  marginTop: '14px',
+                  display: 'grid',
+                  gridTemplateColumns:
+                    'repeat(auto-fit, minmax(180px, 1fr))',
+                  gap: '12px',
+                  marginTop: '16px',
                 }}
               >
-                🔎 Suchen
-              </button>
+                <label
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                    fontWeight: 700,
+                  }}
+                >
+                  Kategorie
+
+                  <select
+                    value={searchCategoryId}
+                    onChange={(event) => {
+                      const value =
+                        event.target.value
+
+                      setSearchCategoryId(
+                        value === 'all'
+                          ? 'all'
+                          : Number(value),
+                      )
+                    }}
+                  >
+                    <option value="all">
+                      Alle Kategorien
+                    </option>
+
+                    {categories.map(
+                      (category) =>
+                        category.id ? (
+                          <option
+                            key={category.id}
+                            value={category.id}
+                          >
+                            {categoryDisplay(
+                              category,
+                            )}
+                          </option>
+                        ) : null,
+                    )}
+                  </select>
+                </label>
+
+                <label
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                    fontWeight: 700,
+                  }}
+                >
+                  Sammlung
+
+                  <select
+                    value={searchCollectionId}
+                    onChange={(event) => {
+                      const value =
+                        event.target.value
+
+                      setSearchCollectionId(
+                        value === 'all'
+                          ? 'all'
+                          : Number(value),
+                      )
+                    }}
+                  >
+                    <option value="all">
+                      Alle Sammlungen
+                    </option>
+
+                    {collections.map(
+                      (collection) =>
+                        collection.id ? (
+                          <option
+                            key={collection.id}
+                            value={collection.id}
+                          >
+                            🗃️ {collection.name}
+                          </option>
+                        ) : null,
+                    )}
+                  </select>
+                </label>
+
+                <label
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                    fontWeight: 700,
+                  }}
+                >
+                  Sortierung
+
+                  <select
+                    value={searchSort}
+                    onChange={(event) =>
+                      setSearchSort(
+                        event.target.value as
+                          | 'az'
+                          | 'updated',
+                      )
+                    }
+                  >
+                    <option value="az">
+                      A–Z
+                    </option>
+                    <option value="updated">
+                      Zuletzt geändert
+                    </option>
+                  </select>
+                </label>
+              </div>
+
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '9px',
+                  marginTop: '16px',
+                  fontWeight: 700,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={searchFavoritesOnly}
+                  onChange={(event) =>
+                    setSearchFavoritesOnly(
+                      event.target.checked,
+                    )
+                  }
+                  style={{
+                    width: 'auto',
+                    margin: 0,
+                  }}
+                />
+
+                ❤️ Nur Favoriten
+              </label>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns:
+                    '1fr 1fr',
+                  gap: '10px',
+                  marginTop: '16px',
+                }}
+              >
+                <button
+                  className="primary"
+                  type="button"
+                  onClick={startSearch}
+                  disabled={
+                    !searchQuery.trim() &&
+                    searchCategoryId === 'all' &&
+                    searchCollectionId === 'all' &&
+                    !searchFavoritesOnly
+                  }
+                >
+                  🔎 Anwenden
+                </button>
+
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={resetSearchFilters}
+                >
+                  ↺ Zurücksetzen
+                </button>
+              </div>
             </section>
 
             {renderRecipeGrid(

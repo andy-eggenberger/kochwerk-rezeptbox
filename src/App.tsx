@@ -1,14 +1,21 @@
-import { useEffect, useState } from 'react'
+import {
+  useEffect,
+  useState,
+  type ChangeEvent,
+} from 'react'
+
 import {
   importRecipe,
   type ImportedRecipe,
 } from './import/recipeImport'
+
 import {
   db,
   type Recipe,
   type Category,
   type Collection,
 } from './db/database'
+
 import './App.css'
 
 type View =
@@ -20,6 +27,15 @@ type View =
   | 'collections'
   | 'collectionRecipes'
   | 'search'
+
+type BackupData = {
+  app: 'Kochwerk'
+  backupVersion: 1
+  createdAt: string
+  recipes: Recipe[]
+  categories: Category[]
+  collections: Collection[]
+}
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -107,6 +123,7 @@ function App() {
   const [showImport, setShowImport] = useState(false)
   const [showNewRecipe, setShowNewRecipe] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
+  const [showBackup, setShowBackup] = useState(false)
 
   const [showNewCategory, setShowNewCategory] =
     useState(false)
@@ -132,16 +149,21 @@ function App() {
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [categories, setCategories] =
     useState<Category[]>([])
+
   const [collections, setCollections] =
     useState<Collection[]>([])
 
   const [searchQuery, setSearchQuery] = useState('')
+
+  const [backupMessage, setBackupMessage] =
+    useState('')
 
   const [editTitle, setEditTitle] = useState('')
   const [editServings, setEditServings] = useState('')
   const [editTime, setEditTime] = useState('')
   const [editIngredients, setEditIngredients] =
     useState('')
+
   const [editPreparation, setEditPreparation] =
     useState('')
 
@@ -154,8 +176,10 @@ function App() {
   const [newTitle, setNewTitle] = useState('')
   const [newServings, setNewServings] = useState('')
   const [newTime, setNewTime] = useState('')
+
   const [newIngredients, setNewIngredients] =
     useState('')
+
   const [newPreparation, setNewPreparation] =
     useState('')
 
@@ -204,6 +228,7 @@ function App() {
 
   const [importUrl, setImportUrl] = useState('')
   const [importMessage, setImportMessage] = useState('')
+
   const [importLoading, setImportLoading] =
     useState(false)
 
@@ -218,10 +243,16 @@ function App() {
   >('idle')
 
   useEffect(() => {
-    loadRecipes()
-    loadCategories()
-    loadCollections()
+    loadAllData()
   }, [])
+
+  async function loadAllData() {
+    await Promise.all([
+      loadRecipes(),
+      loadCategories(),
+      loadCollections(),
+    ])
+  }
 
   async function loadRecipes() {
     const storedRecipes = await db.recipes
@@ -357,18 +388,222 @@ function App() {
     setView('search')
   }
 
+  function createBackup() {
+    const backup: BackupData = {
+      app: 'Kochwerk',
+      backupVersion: 1,
+      createdAt: new Date().toISOString(),
+      recipes,
+      categories,
+      collections,
+    }
+
+    const json = JSON.stringify(
+      backup,
+      null,
+      2,
+    )
+
+    const blob = new Blob(
+      [json],
+      {
+        type: 'application/json',
+      },
+    )
+
+    const url =
+      URL.createObjectURL(blob)
+
+    const now = new Date()
+
+    const date =
+      `${now.getFullYear()}-` +
+      `${String(now.getMonth() + 1).padStart(2, '0')}-` +
+      `${String(now.getDate()).padStart(2, '0')}`
+
+    const time =
+      `${String(now.getHours()).padStart(2, '0')}-` +
+      `${String(now.getMinutes()).padStart(2, '0')}`
+
+    const link =
+      document.createElement('a')
+
+    link.href = url
+    link.download =
+      `Kochwerk-Sicherung_${date}_${time}.json`
+
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+
+    URL.revokeObjectURL(url)
+
+    setBackupMessage(
+      `Sicherung erstellt: ${recipes.length} Rezepte, ${categories.length} Kategorien und ${collections.length} Sammlungen.`,
+    )
+  }
+
+  async function restoreBackup(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file =
+      event.target.files?.[0]
+
+    event.target.value = ''
+
+    if (!file) return
+
+    try {
+      setBackupMessage(
+        'Sicherung wird geprüft …',
+      )
+
+      const text =
+        await file.text()
+
+      const parsed =
+        JSON.parse(text) as Partial<BackupData>
+
+      if (
+        parsed.app !== 'Kochwerk' ||
+        parsed.backupVersion !== 1 ||
+        !Array.isArray(parsed.recipes) ||
+        !Array.isArray(parsed.categories) ||
+        !Array.isArray(parsed.collections)
+      ) {
+        setBackupMessage(
+          'Diese Datei ist keine gültige Kochwerk-Sicherung.',
+        )
+        return
+      }
+
+      const confirmed =
+        window.confirm(
+          `Sicherung wiederherstellen?\n\n` +
+            `Die aktuelle Kochwerk-Datenbank wird durch diese Sicherung ersetzt.\n\n` +
+            `In der Sicherung befinden sich:\n` +
+            `${parsed.recipes.length} Rezepte\n` +
+            `${parsed.categories.length} Kategorien\n` +
+            `${parsed.collections.length} Sammlungen`,
+        )
+
+      if (!confirmed) {
+        setBackupMessage(
+          'Wiederherstellung abgebrochen.',
+        )
+        return
+      }
+
+      const restoredRecipes =
+        parsed.recipes.map((recipe) => ({
+          ...recipe,
+
+          createdAt:
+            recipe.createdAt
+              ? new Date(recipe.createdAt)
+              : new Date(),
+
+          updatedAt:
+            recipe.updatedAt
+              ? new Date(recipe.updatedAt)
+              : new Date(),
+
+          ingredients:
+            recipe.ingredients ?? [],
+
+          preparation:
+            recipe.preparation ?? [],
+
+          categoryIds:
+            recipe.categoryIds ?? [],
+
+          collectionIds:
+            recipe.collectionIds ?? [],
+
+          imageIds:
+            recipe.imageIds ?? [],
+
+          favorite:
+            recipe.favorite ?? false,
+        }))
+
+      await db.transaction(
+        'rw',
+        db.recipes,
+        db.categories,
+        db.collections,
+        async () => {
+          await db.recipes.clear()
+          await db.categories.clear()
+          await db.collections.clear()
+
+          if (
+            parsed.categories!.length > 0
+          ) {
+            await db.categories.bulkPut(
+              parsed.categories!,
+            )
+          }
+
+          if (
+            parsed.collections!.length > 0
+          ) {
+            await db.collections.bulkPut(
+              parsed.collections!,
+            )
+          }
+
+          if (
+            restoredRecipes.length > 0
+          ) {
+            await db.recipes.bulkPut(
+              restoredRecipes,
+            )
+          }
+        },
+      )
+
+      setSelectedRecipe(null)
+      setSelectedCategory(null)
+      setSelectedCollection(null)
+
+      setView('home')
+
+      await loadAllData()
+
+      setBackupMessage(
+        `Sicherung erfolgreich wiederhergestellt: ${restoredRecipes.length} Rezepte.`,
+      )
+    } catch (error) {
+      console.error(
+        'Fehler beim Wiederherstellen:',
+        error,
+      )
+
+      setBackupMessage(
+        'Die Sicherung konnte nicht wiederhergestellt werden.',
+      )
+    }
+  }
+
   async function handleImport() {
     setImportLoading(true)
     setImportMessage('')
     setRecipePreview(null)
     setSaveStatus('idle')
 
-    const result = await importRecipe(importUrl)
+    const result =
+      await importRecipe(importUrl)
 
-    if (result.success && result.recipe) {
+    if (
+      result.success &&
+      result.recipe
+    ) {
       setRecipePreview(result.recipe)
       setSourceUrl(result.sourceUrl)
-      setSourceName(result.sourceName ?? '')
+      setSourceName(
+        result.sourceName ?? '',
+      )
 
       setImportMessage(
         `Rezept erkannt – Quelle: ${result.sourceName ?? ''}`,
@@ -389,10 +624,11 @@ function App() {
     try {
       setSaveStatus('saving')
 
-      const existing = await db.recipes
-        .where('title')
-        .equals(recipePreview.title)
-        .first()
+      const existing =
+        await db.recipes
+          .where('title')
+          .equals(recipePreview.title)
+          .first()
 
       if (
         existing &&
@@ -406,44 +642,60 @@ function App() {
 
       await db.recipes.add({
         title: recipePreview.title,
+
         description: '',
+
         categoryIds: [],
         collectionIds: [],
 
-        ingredients: recipePreview.ingredients.map(
-          (ingredient, index) => ({
-            id: `${Date.now()}-${index}`,
-            name: ingredient,
-          }),
-        ),
+        ingredients:
+          recipePreview.ingredients.map(
+            (ingredient, index) => ({
+              id: `${Date.now()}-${index}`,
+              name: ingredient,
+            }),
+          ),
 
-        preparation: recipePreview.instructions,
+        preparation:
+          recipePreview.instructions,
 
-        servings: getServings(recipePreview.yield),
+        servings:
+          getServings(
+            recipePreview.yield,
+          ),
 
-        servingsLabel: Array.isArray(
-          recipePreview.yield,
-        )
-          ? recipePreview.yield.join(', ')
-          : recipePreview.yield,
+        servingsLabel:
+          Array.isArray(
+            recipePreview.yield,
+          )
+            ? recipePreview.yield.join(
+                ', ',
+              )
+            : recipePreview.yield,
 
-        prepTimeMinutes: durationToMinutes(
-          recipePreview.prepTime,
-        ),
+        prepTimeMinutes:
+          durationToMinutes(
+            recipePreview.prepTime,
+          ),
 
-        cookingTimeMinutes: durationToMinutes(
-          recipePreview.cookTime,
-        ),
+        cookingTimeMinutes:
+          durationToMinutes(
+            recipePreview.cookTime,
+          ),
 
-        totalTimeMinutes: durationToMinutes(
-          recipePreview.totalTime,
-        ),
+        totalTimeMinutes:
+          durationToMinutes(
+            recipePreview.totalTime,
+          ),
 
         sourceUrl,
         sourceName,
-        sourceImageUrl: recipePreview.image,
+
+        sourceImageUrl:
+          recipePreview.image,
 
         imageIds: [],
+
         favorite: false,
 
         createdAt: now,
@@ -451,12 +703,14 @@ function App() {
       })
 
       setSaveStatus('saved')
+
       await loadRecipes()
     } catch (error) {
       console.error(
         'Fehler beim Speichern:',
         error,
       )
+
       setSaveStatus('error')
     }
   }
@@ -483,8 +737,11 @@ function App() {
   async function toggleFavorite() {
     if (!selectedRecipe?.id) return
 
-    const newValue = !selectedRecipe.favorite
-    const updatedAt = new Date()
+    const newValue =
+      !selectedRecipe.favorite
+
+    const updatedAt =
+      new Date()
 
     await db.recipes.update(
       selectedRecipe.id,
@@ -506,13 +763,16 @@ function App() {
   async function deleteRecipe() {
     if (!selectedRecipe?.id) return
 
-    const confirmed = window.confirm(
-      `Möchtest du "${selectedRecipe.title}" wirklich löschen?`,
-    )
+    const confirmed =
+      window.confirm(
+        `Möchtest du "${selectedRecipe.title}" wirklich löschen?`,
+      )
 
     if (!confirmed) return
 
-    await db.recipes.delete(selectedRecipe.id)
+    await db.recipes.delete(
+      selectedRecipe.id,
+    )
 
     setSelectedRecipe(null)
 
@@ -522,10 +782,13 @@ function App() {
   function openEdit() {
     if (!selectedRecipe) return
 
-    setEditTitle(selectedRecipe.title)
+    setEditTitle(
+      selectedRecipe.title,
+    )
 
     setEditServings(
-      selectedRecipe.servingsLabel ?? '',
+      selectedRecipe.servingsLabel ??
+        '',
     )
 
     setEditTime(
@@ -537,7 +800,10 @@ function App() {
     )
 
     setEditIngredients(
-      (selectedRecipe.ingredients ?? [])
+      (
+        selectedRecipe.ingredients ??
+        []
+      )
         .map(
           (ingredient) =>
             ingredient.name,
@@ -547,16 +813,19 @@ function App() {
 
     setEditPreparation(
       (
-        selectedRecipe.preparation ?? []
+        selectedRecipe.preparation ??
+        []
       ).join('\n'),
     )
 
     setEditCategoryIds(
-      selectedRecipe.categoryIds ?? [],
+      selectedRecipe.categoryIds ??
+        [],
     )
 
     setEditCollectionIds(
-      selectedRecipe.collectionIds ?? [],
+      selectedRecipe.collectionIds ??
+        [],
     )
 
     setShowEdit(true)
@@ -565,14 +834,15 @@ function App() {
   async function saveEdit() {
     if (!selectedRecipe?.id) return
 
-    const ingredients = editIngredients
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((name, index) => ({
-        id: `${Date.now()}-${index}`,
-        name,
-      }))
+    const ingredients =
+      editIngredients
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((name, index) => ({
+          id: `${Date.now()}-${index}`,
+          name,
+        }))
 
     const preparation =
       editPreparation
@@ -580,7 +850,8 @@ function App() {
         .map((line) => line.trim())
         .filter(Boolean)
 
-    const parsedTime = Number(editTime)
+    const parsedTime =
+      Number(editTime)
 
     await db.recipes.update(
       selectedRecipe.id,
@@ -594,19 +865,24 @@ function App() {
           undefined,
 
         totalTimeMinutes:
-          Number.isFinite(parsedTime) &&
-          parsedTime > 0
+          Number.isFinite(
+            parsedTime,
+          ) && parsedTime > 0
             ? parsedTime
             : undefined,
 
         ingredients,
+
         preparation,
 
-        categoryIds: editCategoryIds,
+        categoryIds:
+          editCategoryIds,
+
         collectionIds:
           editCollectionIds,
 
-        updatedAt: new Date(),
+        updatedAt:
+          new Date(),
       },
     )
 
@@ -638,7 +914,8 @@ function App() {
   }
 
   async function saveNewRecipe() {
-    const title = newTitle.trim()
+    const title =
+      newTitle.trim()
 
     if (!title) {
       setNewRecipeMessage(
@@ -663,20 +940,26 @@ function App() {
         .map((line) => line.trim())
         .filter(Boolean)
 
-    const parsedTime = Number(newTime)
+    const parsedTime =
+      Number(newTime)
 
-    const now = new Date()
+    const now =
+      new Date()
 
     const newId =
       await db.recipes.add({
         title,
+
         description: '',
 
-        categoryIds: newCategoryIds,
+        categoryIds:
+          newCategoryIds,
+
         collectionIds:
           newCollectionIds,
 
         ingredients,
+
         preparation,
 
         servingsLabel:
@@ -684,12 +967,14 @@ function App() {
           undefined,
 
         totalTimeMinutes:
-          Number.isFinite(parsedTime) &&
-          parsedTime > 0
+          Number.isFinite(
+            parsedTime,
+          ) && parsedTime > 0
             ? parsedTime
             : undefined,
 
         imageIds: [],
+
         favorite: false,
 
         createdAt: now,
@@ -699,13 +984,18 @@ function App() {
     await loadRecipes()
 
     const createdRecipe =
-      await db.recipes.get(newId)
+      await db.recipes.get(
+        newId,
+      )
 
     setShowNewRecipe(false)
+
     setView('recipes')
 
     if (createdRecipe) {
-      setSelectedRecipe(createdRecipe)
+      setSelectedRecipe(
+        createdRecipe,
+      )
     }
   }
 
@@ -715,9 +1005,13 @@ function App() {
     setNewCategoryIds((current) =>
       current.includes(categoryId)
         ? current.filter(
-            (id) => id !== categoryId,
+            (id) =>
+              id !== categoryId,
           )
-        : [...current, categoryId],
+        : [
+            ...current,
+            categoryId,
+          ],
     )
   }
 
@@ -727,9 +1021,13 @@ function App() {
     setEditCategoryIds((current) =>
       current.includes(categoryId)
         ? current.filter(
-            (id) => id !== categoryId,
+            (id) =>
+              id !== categoryId,
           )
-        : [...current, categoryId],
+        : [
+            ...current,
+            categoryId,
+          ],
     )
   }
 
@@ -737,23 +1035,36 @@ function App() {
     collectionId: number,
   ) {
     setNewCollectionIds((current) =>
-      current.includes(collectionId)
+      current.includes(
+        collectionId,
+      )
         ? current.filter(
-            (id) => id !== collectionId,
+            (id) =>
+              id !== collectionId,
           )
-        : [...current, collectionId],
+        : [
+            ...current,
+            collectionId,
+          ],
     )
   }
 
   function toggleEditCollection(
     collectionId: number,
   ) {
-    setEditCollectionIds((current) =>
-      current.includes(collectionId)
-        ? current.filter(
-            (id) => id !== collectionId,
-          )
-        : [...current, collectionId],
+    setEditCollectionIds(
+      (current) =>
+        current.includes(
+          collectionId,
+        )
+          ? current.filter(
+              (id) =>
+                id !== collectionId,
+            )
+          : [
+              ...current,
+              collectionId,
+            ],
     )
   }
 
@@ -766,12 +1077,14 @@ function App() {
   }
 
   async function saveNewCategory() {
-    const name = newCategoryName.trim()
+    const name =
+      newCategoryName.trim()
 
     if (!name) {
       window.alert(
         'Bitte einen Kategorienamen eingeben.',
       )
+
       return
     }
 
@@ -785,13 +1098,15 @@ function App() {
       window.alert(
         'Diese Kategorie gibt es bereits.',
       )
+
       return
     }
 
     await db.categories.add({
       name,
       icon: newCategoryIcon,
-      sortOrder: categories.length,
+      sortOrder:
+        categories.length,
     })
 
     setShowNewCategory(false)
@@ -803,13 +1118,18 @@ function App() {
     category: Category,
   ) {
     setSelectedCategory(category)
-    setView('categoryRecipes')
+
+    setView(
+      'categoryRecipes',
+    )
   }
 
   function openCategoryEdit(
     category: Category,
   ) {
-    setSelectedCategory(category)
+    setSelectedCategory(
+      category,
+    )
 
     setEditCategoryName(
       category.name,
@@ -825,7 +1145,8 @@ function App() {
   }
 
   async function saveCategoryEdit() {
-    if (!selectedCategory?.id) return
+    if (!selectedCategory?.id)
+      return
 
     const name =
       editCategoryName.trim()
@@ -834,6 +1155,7 @@ function App() {
       window.alert(
         'Bitte einen Kategorienamen eingeben.',
       )
+
       return
     }
 
@@ -871,24 +1193,32 @@ function App() {
     const affectedRecipes =
       recipes.filter((recipe) =>
         (
-          recipe.categoryIds ?? []
-        ).includes(category.id!),
+          recipe.categoryIds ??
+          []
+        ).includes(
+          category.id!,
+        ),
       )
 
-    for (const recipe of affectedRecipes) {
+    for (
+      const recipe of
+      affectedRecipes
+    ) {
       if (!recipe.id) continue
 
       await db.recipes.update(
         recipe.id,
         {
           categoryIds: (
-            recipe.categoryIds ?? []
+            recipe.categoryIds ??
+            []
           ).filter(
             (id) =>
               id !== category.id,
           ),
 
-          updatedAt: new Date(),
+          updatedAt:
+            new Date(),
         },
       )
     }
@@ -924,6 +1254,7 @@ function App() {
       window.alert(
         'Bitte einen Namen für die Sammlung eingeben.',
       )
+
       return
     }
 
@@ -937,6 +1268,7 @@ function App() {
       window.alert(
         'Diese Sammlung gibt es bereits.',
       )
+
       return
     }
 
@@ -947,7 +1279,8 @@ function App() {
         newCollectionDescription.trim() ||
         undefined,
 
-      sortOrder: collections.length,
+      sortOrder:
+        collections.length,
     })
 
     setShowNewCollection(false)
@@ -958,28 +1291,39 @@ function App() {
   function openCollection(
     collection: Collection,
   ) {
-    setSelectedCollection(collection)
-    setView('collectionRecipes')
+    setSelectedCollection(
+      collection,
+    )
+
+    setView(
+      'collectionRecipes',
+    )
   }
 
   function openCollectionEdit(
     collection: Collection,
   ) {
-    setSelectedCollection(collection)
+    setSelectedCollection(
+      collection,
+    )
 
     setEditCollectionName(
       collection.name,
     )
 
     setEditCollectionDescription(
-      collection.description ?? '',
+      collection.description ??
+        '',
     )
 
     setShowEditCollection(true)
   }
 
   async function saveCollectionEdit() {
-    if (!selectedCollection?.id) return
+    if (
+      !selectedCollection?.id
+    )
+      return
 
     const name =
       editCollectionName.trim()
@@ -988,6 +1332,7 @@ function App() {
       window.alert(
         'Bitte einen Namen für die Sammlung eingeben.',
       )
+
       return
     }
 
@@ -1004,6 +1349,7 @@ function App() {
 
     setSelectedCollection({
       ...selectedCollection,
+
       name,
 
       description:
@@ -1031,24 +1377,32 @@ function App() {
     const affectedRecipes =
       recipes.filter((recipe) =>
         (
-          recipe.collectionIds ?? []
-        ).includes(collection.id!),
+          recipe.collectionIds ??
+          []
+        ).includes(
+          collection.id!,
+        ),
       )
 
-    for (const recipe of affectedRecipes) {
+    for (
+      const recipe of
+      affectedRecipes
+    ) {
       if (!recipe.id) continue
 
       await db.recipes.update(
         recipe.id,
         {
           collectionIds: (
-            recipe.collectionIds ?? []
+            recipe.collectionIds ??
+            []
           ).filter(
             (id) =>
               id !== collection.id,
           ),
 
-          updatedAt: new Date(),
+          updatedAt:
+            new Date(),
         },
       )
     }
@@ -1073,7 +1427,9 @@ function App() {
     selectedIds: number[],
     toggle: (id: number) => void,
   ) {
-    if (categories.length === 0) {
+    if (
+      categories.length === 0
+    ) {
       return (
         <p>
           Noch keine Kategorien vorhanden.
@@ -1083,42 +1439,49 @@ function App() {
 
     return (
       <div>
-        {categories.map((category) => {
-          if (!category.id) return null
+        {categories.map(
+          (category) => {
+            if (!category.id)
+              return null
 
-          return (
-            <label
-              key={category.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                marginTop: '10px',
-                fontWeight: 500,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={selectedIds.includes(
-                  category.id,
-                )}
-                onChange={() =>
-                  toggle(category.id!)
-                }
+            return (
+              <label
+                key={category.id}
                 style={{
-                  width: 'auto',
-                  margin: 0,
+                  display: 'flex',
+                  alignItems:
+                    'center',
+                  gap: '10px',
+                  marginTop:
+                    '10px',
+                  fontWeight: 500,
                 }}
-              />
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(
+                    category.id,
+                  )}
+                  onChange={() =>
+                    toggle(
+                      category.id!,
+                    )
+                  }
+                  style={{
+                    width: 'auto',
+                    margin: 0,
+                  }}
+                />
 
-              <span>
-                {categoryDisplay(
-                  category,
-                )}
-              </span>
-            </label>
-          )
-        })}
+                <span>
+                  {categoryDisplay(
+                    category,
+                  )}
+                </span>
+              </label>
+            )
+          },
+        )}
       </div>
     )
   }
@@ -1127,7 +1490,9 @@ function App() {
     selectedIds: number[],
     toggle: (id: number) => void,
   ) {
-    if (collections.length === 0) {
+    if (
+      collections.length === 0
+    ) {
       return (
         <p>
           Noch keine Sammlungen vorhanden.
@@ -1137,50 +1502,69 @@ function App() {
 
     return (
       <div>
-        {collections.map((collection) => {
-          if (!collection.id) return null
+        {collections.map(
+          (collection) => {
+            if (!collection.id)
+              return null
 
-          return (
-            <label
-              key={collection.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                marginTop: '10px',
-                fontWeight: 500,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={selectedIds.includes(
-                  collection.id,
-                )}
-                onChange={() =>
-                  toggle(collection.id!)
+            return (
+              <label
+                key={
+                  collection.id
                 }
                 style={{
-                  width: 'auto',
-                  margin: 0,
+                  display: 'flex',
+                  alignItems:
+                    'center',
+                  gap: '10px',
+                  marginTop:
+                    '10px',
+                  fontWeight: 500,
                 }}
-              />
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(
+                    collection.id,
+                  )}
+                  onChange={() =>
+                    toggle(
+                      collection.id!,
+                    )
+                  }
+                  style={{
+                    width: 'auto',
+                    margin: 0,
+                  }}
+                />
 
-              <span>
-                🗃️ {collection.name}
-              </span>
-            </label>
-          )
-        })}
+                <span>
+                  🗃️{' '}
+                  {
+                    collection.name
+                  }
+                </span>
+              </label>
+            )
+          },
+        )}
       </div>
     )
   }
 
   function renderIconPicker(
-    selectedIcon: string | undefined,
+    selectedIcon:
+      | string
+      | undefined,
+
     onSelect: (
-      icon: string | undefined,
+      icon:
+        | string
+        | undefined,
     ) => void,
+
     customEmoji: string,
+
     setCustomEmoji: (
       value: string,
     ) => void,
@@ -1190,11 +1574,17 @@ function App() {
         <div
           style={{
             display: 'grid',
+
             gridTemplateColumns:
               'repeat(auto-fill, minmax(52px, 1fr))',
+
             gap: '10px',
-            marginTop: '10px',
-            marginBottom: '16px',
+
+            marginTop:
+              '10px',
+
+            marginBottom:
+              '16px',
           }}
         >
           <button
@@ -1206,18 +1596,26 @@ function App() {
             title="Kein Symbol"
             style={{
               height: '52px',
-              borderRadius: '13px',
+
+              borderRadius:
+                '13px',
+
               cursor: 'pointer',
-              fontSize: '0.78rem',
+
+              fontSize:
+                '0.78rem',
+
               fontWeight: 700,
 
               border:
-                selectedIcon === undefined
+                selectedIcon ===
+                undefined
                   ? '3px solid #ef7658'
                   : '1px solid #e4dbd1',
 
               background:
-                selectedIcon === undefined
+                selectedIcon ===
+                undefined
                   ? '#fff1ec'
                   : '#fbfaf8',
             }}
@@ -1225,48 +1623,63 @@ function App() {
             Ohne
           </button>
 
-          {CATEGORY_ICONS.map((icon) => (
-            <button
-              key={icon}
-              type="button"
-              onClick={() => {
-                onSelect(icon)
-                setCustomEmoji('')
-              }}
-              style={{
-                height: '52px',
-                borderRadius: '13px',
-                cursor: 'pointer',
-                fontSize: '1.65rem',
+          {CATEGORY_ICONS.map(
+            (icon) => (
+              <button
+                key={icon}
+                type="button"
+                onClick={() => {
+                  onSelect(icon)
+                  setCustomEmoji('')
+                }}
+                style={{
+                  height: '52px',
 
-                border:
-                  selectedIcon === icon
-                    ? '3px solid #ef7658'
-                    : '1px solid #e4dbd1',
+                  borderRadius:
+                    '13px',
 
-                background:
-                  selectedIcon === icon
-                    ? '#fff1ec'
-                    : '#fbfaf8',
-              }}
-            >
-              {icon}
-            </button>
-          ))}
+                  cursor:
+                    'pointer',
+
+                  fontSize:
+                    '1.65rem',
+
+                  border:
+                    selectedIcon ===
+                    icon
+                      ? '3px solid #ef7658'
+                      : '1px solid #e4dbd1',
+
+                  background:
+                    selectedIcon ===
+                    icon
+                      ? '#fff1ec'
+                      : '#fbfaf8',
+                }}
+              >
+                {icon}
+              </button>
+            ),
+          )}
         </div>
 
         <label>
           Eigenes Emoji
+
           <input
             value={customEmoji}
             onChange={(event) => {
               const value =
                 event.target.value
 
-              setCustomEmoji(value)
+              setCustomEmoji(
+                value,
+              )
 
               if (value.trim()) {
-                onSelect(value.trim())
+                onSelect(
+                  value.trim(),
+                )
               }
             }}
             placeholder="z. B. 🥣"
@@ -1291,7 +1704,8 @@ function App() {
               : view ===
                   'collectionRecipes'
                 ? 'In dieser Sammlung sind noch keine Rezepte.'
-                : view === 'search'
+                : view ===
+                    'search'
                   ? `Keine Rezepte für „${searchQuery}“ gefunden.`
                   : 'Noch keine Rezepte gespeichert.'}
         </div>
@@ -1300,131 +1714,150 @@ function App() {
 
     return (
       <div className="recipe-grid">
-        {list.map((recipe) => {
-          const recipeCategories =
-            categoryNameList(recipe)
+        {list.map(
+          (recipe) => {
+            const recipeCategories =
+              categoryNameList(
+                recipe,
+              )
 
-          const recipeCollections =
-            collectionNameList(recipe)
+            const recipeCollections =
+              collectionNameList(
+                recipe,
+              )
 
-          return (
-            <button
-              type="button"
-              className="recipe-card recipe-card-button"
-              key={recipe.id}
-              onClick={() =>
-                setSelectedRecipe(recipe)
-              }
-            >
-              {recipe.sourceImageUrl ? (
-                <img
-                  src={
-                    recipe.sourceImageUrl
-                  }
-                  alt={recipe.title}
-                  className="recipe-card-image"
-                />
-              ) : (
-                <div className="recipe-card-placeholder">
-                  🍽️
-                </div>
-              )}
+            return (
+              <button
+                type="button"
+                className="recipe-card recipe-card-button"
+                key={recipe.id}
+                onClick={() =>
+                  setSelectedRecipe(
+                    recipe,
+                  )
+                }
+              >
+                {recipe.sourceImageUrl ? (
+                  <img
+                    src={
+                      recipe.sourceImageUrl
+                    }
+                    alt={
+                      recipe.title
+                    }
+                    className="recipe-card-image"
+                  />
+                ) : (
+                  <div className="recipe-card-placeholder">
+                    🍽️
+                  </div>
+                )}
 
-              <div className="recipe-card-content">
-                <div className="recipe-card-title-row">
-                  <h3>
-                    {recipe.title}
-                  </h3>
+                <div className="recipe-card-content">
+                  <div className="recipe-card-title-row">
+                    <h3>
+                      {
+                        recipe.title
+                      }
+                    </h3>
 
-                  {recipe.favorite && (
-                    <span className="favorite-mark">
-                      ❤️
-                    </span>
+                    {recipe.favorite && (
+                      <span className="favorite-mark">
+                        ❤️
+                      </span>
+                    )}
+                  </div>
+
+                  {recipe.servingsLabel && (
+                    <p>
+                      👥{' '}
+                      {
+                        recipe.servingsLabel
+                      }
+                    </p>
+                  )}
+
+                  {recipe.totalTimeMinutes && (
+                    <p>
+                      ⏱️{' '}
+                      {
+                        recipe.totalTimeMinutes
+                      }{' '}
+                      Min.
+                    </p>
+                  )}
+
+                  {recipeCategories.length >
+                    0 && (
+                    <p>
+                      {recipeCategories.join(
+                        ' · ',
+                      )}
+                    </p>
+                  )}
+
+                  {recipeCollections.length >
+                    0 && (
+                    <p>
+                      {recipeCollections.join(
+                        ' · ',
+                      )}
+                    </p>
+                  )}
+
+                  {recipe.sourceName && (
+                    <p className="recipe-source">
+                      Quelle:{' '}
+                      {
+                        recipe.sourceName
+                      }
+                    </p>
                   )}
                 </div>
-
-                {recipe.servingsLabel && (
-                  <p>
-                    👥{' '}
-                    {
-                      recipe.servingsLabel
-                    }
-                  </p>
-                )}
-
-                {recipe.totalTimeMinutes && (
-                  <p>
-                    ⏱️{' '}
-                    {
-                      recipe.totalTimeMinutes
-                    }{' '}
-                    Min.
-                  </p>
-                )}
-
-                {recipeCategories.length >
-                  0 && (
-                  <p>
-                    {recipeCategories.join(
-                      ' · ',
-                    )}
-                  </p>
-                )}
-
-                {recipeCollections.length >
-                  0 && (
-                  <p>
-                    {recipeCollections.join(
-                      ' · ',
-                    )}
-                  </p>
-                )}
-
-                {recipe.sourceName && (
-                  <p className="recipe-source">
-                    Quelle:{' '}
-                    {
-                      recipe.sourceName
-                    }
-                  </p>
-                )}
-              </div>
-            </button>
-          )
-        })}
+              </button>
+            )
+          },
+        )}
       </div>
     )
   }
 
   const favoriteRecipes =
     recipes.filter(
-      (recipe) => recipe.favorite,
+      (recipe) =>
+        recipe.favorite,
     )
 
   const categoryRecipes =
     selectedCategory?.id
-      ? recipes.filter((recipe) =>
-          (
-            recipe.categoryIds ?? []
-          ).includes(
-            selectedCategory.id!,
-          ),
+      ? recipes.filter(
+          (recipe) =>
+            (
+              recipe.categoryIds ??
+              []
+            ).includes(
+              selectedCategory.id!,
+            ),
         )
       : []
 
   const collectionRecipes =
     selectedCollection?.id
-      ? recipes.filter((recipe) =>
-          (
-            recipe.collectionIds ?? []
-          ).includes(
-            selectedCollection.id!,
-          ),
+      ? recipes.filter(
+          (recipe) =>
+            (
+              recipe.collectionIds ??
+              []
+            ).includes(
+              selectedCollection.id!,
+            ),
         )
       : []
 
   const searchResults =
-    recipes.filter(recipeMatchesSearch)
+    recipes.filter(
+      recipeMatchesSearch,
+    )
 
   return (
     <div className="app">
@@ -1437,6 +1870,7 @@ function App() {
 
         <div>
           <h1>Kochwerk</h1>
+
           <p className="subtitle">
             meine Rezeptbox
           </p>
@@ -1451,7 +1885,9 @@ function App() {
                 className="back-button"
                 type="button"
                 onClick={() =>
-                  setSelectedRecipe(null)
+                  setSelectedRecipe(
+                    null,
+                  )
                 }
               >
                 ← Zurück
@@ -1461,7 +1897,9 @@ function App() {
                 <button
                   className="favorite-button"
                   type="button"
-                  onClick={toggleFavorite}
+                  onClick={
+                    toggleFavorite
+                  }
                 >
                   {selectedRecipe.favorite
                     ? '❤️ Favorit'
@@ -1471,7 +1909,9 @@ function App() {
                 <button
                   className="edit-button"
                   type="button"
-                  onClick={openEdit}
+                  onClick={
+                    openEdit
+                  }
                 >
                   ✏️ Bearbeiten
                 </button>
@@ -1479,7 +1919,9 @@ function App() {
                 <button
                   className="delete-button"
                   type="button"
-                  onClick={deleteRecipe}
+                  onClick={
+                    deleteRecipe
+                  }
                 >
                   🗑️ Löschen
                 </button>
@@ -1499,7 +1941,9 @@ function App() {
             )}
 
             <h2>
-              {selectedRecipe.title}
+              {
+                selectedRecipe.title
+              }
             </h2>
 
             <div className="recipe-detail-meta">
@@ -1584,7 +2028,9 @@ function App() {
             </div>
 
             <div className="recipe-detail-section">
-              <h3>Zubereitung</h3>
+              <h3>
+                Zubereitung
+              </h3>
 
               {(
                 selectedRecipe.preparation ??
@@ -1595,8 +2041,15 @@ function App() {
                     selectedRecipe.preparation ??
                     []
                   ).map(
-                    (step, index) => (
-                      <li key={index}>
+                    (
+                      step,
+                      index,
+                    ) => (
+                      <li
+                        key={
+                          index
+                        }
+                      >
                         {step}
                       </li>
                     ),
@@ -1612,6 +2065,7 @@ function App() {
             {selectedRecipe.sourceUrl && (
               <div className="recipe-detail-source">
                 Quelle:{' '}
+
                 <a
                   href={
                     selectedRecipe.sourceUrl
@@ -1635,7 +2089,9 @@ function App() {
               <input
                 className="search"
                 type="search"
-                value={searchQuery}
+                value={
+                  searchQuery
+                }
                 onChange={(event) =>
                   setSearchQuery(
                     event.target.value,
@@ -1643,7 +2099,8 @@ function App() {
                 }
                 onKeyDown={(event) => {
                   if (
-                    event.key === 'Enter'
+                    event.key ===
+                    'Enter'
                   ) {
                     startSearch()
                   }
@@ -1654,7 +2111,9 @@ function App() {
               <button
                 className="primary"
                 type="button"
-                onClick={startSearch}
+                onClick={
+                  startSearch
+                }
                 disabled={
                   !searchQuery.trim()
                 }
@@ -1672,15 +2131,19 @@ function App() {
                 className="card"
                 type="button"
                 onClick={() =>
-                  setView('recipes')
+                  setView(
+                    'recipes',
+                  )
                 }
               >
                 <span className="icon">
                   📖
                 </span>
+
                 <strong>
                   Rezepte
                 </strong>
+
                 <span>
                   Alle Rezepte ansehen
                 </span>
@@ -1690,7 +2153,9 @@ function App() {
                 className="card"
                 type="button"
                 onClick={() =>
-                  setView('categories')
+                  setView(
+                    'categories',
+                  )
                 }
               >
                 <span className="icon">
@@ -1718,7 +2183,9 @@ function App() {
                 className="card"
                 type="button"
                 onClick={() =>
-                  setView('collections')
+                  setView(
+                    'collections',
+                  )
                 }
               >
                 <span className="icon">
@@ -1746,7 +2213,9 @@ function App() {
                 className="card"
                 type="button"
                 onClick={() =>
-                  setView('favorites')
+                  setView(
+                    'favorites',
+                  )
                 }
               >
                 <span className="icon">
@@ -1775,7 +2244,9 @@ function App() {
               <button
                 className="primary"
                 type="button"
-                onClick={openNewRecipe}
+                onClick={
+                  openNewRecipe
+                }
               >
                 ＋ Neues Rezept
               </button>
@@ -1785,12 +2256,33 @@ function App() {
                 type="button"
                 onClick={() => {
                   setImportMessage('')
-                  setRecipePreview(null)
-                  setSaveStatus('idle')
-                  setShowImport(true)
+                  setRecipePreview(
+                    null,
+                  )
+                  setSaveStatus(
+                    'idle',
+                  )
+                  setShowImport(
+                    true,
+                  )
                 }}
               >
                 ⇩ Rezept importieren
+              </button>
+
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => {
+                  setBackupMessage(
+                    '',
+                  )
+                  setShowBackup(
+                    true,
+                  )
+                }}
+              >
+                💾 Sicherung
               </button>
             </section>
           </>
@@ -1813,12 +2305,11 @@ function App() {
                 </h2>
 
                 <p>
-                  {searchResults.length}{' '}
-                  {searchResults.length ===
-                  1
-                    ? 'Treffer'
-                    : 'Treffer'}{' '}
-                  für „{searchQuery}“
+                  {
+                    searchResults.length
+                  }{' '}
+                  Treffer für „
+                  {searchQuery}“
                 </p>
               </div>
             </div>
@@ -1826,13 +2317,16 @@ function App() {
             <section
               className="welcome"
               style={{
-                marginBottom: '26px',
+                marginBottom:
+                  '26px',
               }}
             >
               <input
                 className="search"
                 type="search"
-                value={searchQuery}
+                value={
+                  searchQuery
+                }
                 onChange={(event) =>
                   setSearchQuery(
                     event.target.value,
@@ -1840,7 +2334,8 @@ function App() {
                 }
                 onKeyDown={(event) => {
                   if (
-                    event.key === 'Enter'
+                    event.key ===
+                    'Enter'
                   ) {
                     startSearch()
                   }
@@ -1851,9 +2346,8 @@ function App() {
               <button
                 className="primary"
                 type="button"
-                onClick={startSearch}
-                disabled={
-                  !searchQuery.trim()
+                onClick={
+                  startSearch
                 }
                 style={{
                   width: '100%',
@@ -1868,8 +2362,7 @@ function App() {
               searchResults,
             )}
           </section>
-        ) : view ===
-          'categories' ? (
+        ) : view === 'categories' ? (
           <section className="recipes-view">
             <div className="recipes-header">
               <button
@@ -1888,7 +2381,9 @@ function App() {
                 </h2>
 
                 <p>
-                  {categories.length}{' '}
+                  {
+                    categories.length
+                  }{' '}
                   {categories.length ===
                   1
                     ? 'Kategorie'
@@ -1905,7 +2400,8 @@ function App() {
               }
               style={{
                 width: '100%',
-                marginBottom: '24px',
+                marginBottom:
+                  '24px',
               }}
             >
               ＋ Neue Kategorie
@@ -1914,8 +2410,7 @@ function App() {
             {categories.length ===
             0 ? (
               <div className="empty-recipes">
-                Noch keine Kategorien
-                vorhanden.
+                Noch keine Kategorien vorhanden.
               </div>
             ) : (
               <div className="recipe-grid">
@@ -1924,7 +2419,9 @@ function App() {
                     const count =
                       category.id
                         ? recipes.filter(
-                            (recipe) =>
+                            (
+                              recipe,
+                            ) =>
                               (
                                 recipe.categoryIds ??
                                 []
@@ -2017,8 +2514,7 @@ function App() {
               </div>
             )}
           </section>
-        ) : view ===
-          'collections' ? (
+        ) : view === 'collections' ? (
           <section className="recipes-view">
             <div className="recipes-header">
               <button
@@ -2037,7 +2533,9 @@ function App() {
                 </h2>
 
                 <p>
-                  {collections.length}{' '}
+                  {
+                    collections.length
+                  }{' '}
                   {collections.length ===
                   1
                     ? 'Sammlung'
@@ -2054,7 +2552,8 @@ function App() {
               }
               style={{
                 width: '100%',
-                marginBottom: '24px',
+                marginBottom:
+                  '24px',
               }}
             >
               ＋ Neue Sammlung
@@ -2063,8 +2562,7 @@ function App() {
             {collections.length ===
             0 ? (
               <div className="empty-recipes">
-                Noch keine Sammlungen
-                vorhanden.
+                Noch keine Sammlungen vorhanden.
               </div>
             ) : (
               <div className="recipe-grid">
@@ -2073,7 +2571,9 @@ function App() {
                     const count =
                       collection.id
                         ? recipes.filter(
-                            (recipe) =>
+                            (
+                              recipe,
+                            ) =>
                               (
                                 recipe.collectionIds ??
                                 []
@@ -2173,8 +2673,7 @@ function App() {
               </div>
             )}
           </section>
-        ) : view ===
-          'categoryRecipes' ? (
+        ) : view === 'categoryRecipes' ? (
           <section className="recipes-view">
             <div className="recipes-header">
               <button
@@ -2214,8 +2713,7 @@ function App() {
               categoryRecipes,
             )}
           </section>
-        ) : view ===
-          'collectionRecipes' ? (
+        ) : view === 'collectionRecipes' ? (
           <section className="recipes-view">
             <div className="recipes-header">
               <button
@@ -2276,19 +2774,16 @@ function App() {
 
               <div>
                 <h2>
-                  {view ===
-                  'favorites'
+                  {view === 'favorites'
                     ? 'Meine Favoriten'
                     : 'Meine Rezepte'}
                 </h2>
 
                 <p>
-                  {view ===
-                  'favorites'
+                  {view === 'favorites'
                     ? favoriteRecipes.length
                     : recipes.length}{' '}
-                  {(view ===
-                    'favorites'
+                  {(view === 'favorites'
                     ? favoriteRecipes.length
                     : recipes.length) ===
                   1
@@ -2310,6 +2805,98 @@ function App() {
       <footer>
         Kochwerk v0.1.0
       </footer>
+
+      {showBackup && (
+        <div
+          className="modal-backdrop"
+          onClick={() =>
+            setShowBackup(false)
+          }
+        >
+          <div
+            className="edit-modal"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+            <button
+              className="modal-close"
+              type="button"
+              onClick={() =>
+                setShowBackup(false)
+              }
+            >
+              ×
+            </button>
+
+            <h2>
+              💾 Sicherung
+            </h2>
+
+            <p
+              style={{
+                color: '#706a62',
+                lineHeight: 1.5,
+              }}
+            >
+              Sichere deine komplette
+              Kochwerk-Rezeptbox als Datei.
+              Enthalten sind Rezepte,
+              Kategorien und Sammlungen.
+            </p>
+
+            <button
+              className="save-recipe-button"
+              type="button"
+              onClick={createBackup}
+            >
+              💾 Sicherung erstellen
+            </button>
+
+            <div
+              style={{
+                marginTop: '30px',
+                paddingTop: '24px',
+                borderTop:
+                  '1px solid #e5ded5',
+              }}
+            >
+              <h3>
+                Sicherung wiederherstellen
+              </h3>
+
+              <p
+                style={{
+                  color: '#706a62',
+                  lineHeight: 1.5,
+                }}
+              >
+                Wähle eine zuvor erstellte
+                Kochwerk-Sicherungsdatei aus.
+              </p>
+
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={
+                  restoreBackup
+                }
+              />
+            </div>
+
+            {backupMessage && (
+              <p
+                className="import-message"
+                style={{
+                  marginTop: '22px',
+                }}
+              >
+                {backupMessage}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {showImport && (
         <div
@@ -2351,9 +2938,16 @@ function App() {
                 setImportUrl(
                   event.target.value,
                 )
+
                 setImportMessage('')
-                setRecipePreview(null)
-                setSaveStatus('idle')
+
+                setRecipePreview(
+                  null,
+                )
+
+                setSaveStatus(
+                  'idle',
+                )
               }}
               placeholder="https://..."
             />
@@ -2365,7 +2959,9 @@ function App() {
                 !importUrl.trim() ||
                 importLoading
               }
-              onClick={handleImport}
+              onClick={
+                handleImport
+              }
             >
               {importLoading
                 ? 'Rezept wird eingelesen …'
@@ -2398,7 +2994,9 @@ function App() {
                   }
                 </h3>
 
-                <h4>Zutaten</h4>
+                <h4>
+                  Zutaten
+                </h4>
 
                 <ul>
                   {recipePreview.ingredients.map(
@@ -2406,7 +3004,11 @@ function App() {
                       ingredient,
                       index,
                     ) => (
-                      <li key={index}>
+                      <li
+                        key={
+                          index
+                        }
+                      >
                         {
                           ingredient
                         }
@@ -2425,7 +3027,11 @@ function App() {
                       instruction,
                       index,
                     ) => (
-                      <li key={index}>
+                      <li
+                        key={
+                          index
+                        }
+                      >
                         {
                           instruction
                         }
@@ -2474,9 +3080,7 @@ function App() {
               className="modal-close"
               type="button"
               onClick={() =>
-                setShowNewRecipe(
-                  false,
-                )
+                setShowNewRecipe(false)
               }
             >
               ×
@@ -2488,12 +3092,14 @@ function App() {
 
             <label>
               Rezeptname
+
               <input
                 value={newTitle}
                 onChange={(event) => {
                   setNewTitle(
                     event.target.value,
                   )
+
                   setNewRecipeMessage(
                     '',
                   )
@@ -2503,8 +3109,11 @@ function App() {
 
             <label>
               Portionen / Menge
+
               <input
-                value={newServings}
+                value={
+                  newServings
+                }
                 onChange={(event) =>
                   setNewServings(
                     event.target.value,
@@ -2515,6 +3124,7 @@ function App() {
 
             <label>
               Gesamtzeit in Minuten
+
               <input
                 type="number"
                 value={newTime}
@@ -2528,6 +3138,7 @@ function App() {
 
             <label>
               Kategorien
+
               {renderCategoryChoices(
                 newCategoryIds,
                 toggleNewCategory,
@@ -2536,6 +3147,7 @@ function App() {
 
             <label>
               Sammlungen
+
               {renderCollectionChoices(
                 newCollectionIds,
                 toggleNewCollection,
@@ -2543,8 +3155,8 @@ function App() {
             </label>
 
             <label>
-              Zutaten – eine Zeile
-              pro Zutat
+              Zutaten – eine Zeile pro Zutat
+
               <textarea
                 value={
                   newIngredients
@@ -2559,8 +3171,8 @@ function App() {
             </label>
 
             <label>
-              Zubereitung – ein
-              Schritt pro Zeile
+              Zubereitung – ein Schritt pro Zeile
+
               <textarea
                 value={
                   newPreparation
@@ -2625,8 +3237,11 @@ function App() {
 
               <label>
                 Titel
+
                 <input
-                  value={editTitle}
+                  value={
+                    editTitle
+                  }
                   onChange={(event) =>
                     setEditTitle(
                       event.target.value,
@@ -2637,6 +3252,7 @@ function App() {
 
               <label>
                 Portionen
+
                 <input
                   value={
                     editServings
@@ -2651,9 +3267,12 @@ function App() {
 
               <label>
                 Gesamtzeit in Minuten
+
                 <input
                   type="number"
-                  value={editTime}
+                  value={
+                    editTime
+                  }
                   onChange={(event) =>
                     setEditTime(
                       event.target.value,
@@ -2664,6 +3283,7 @@ function App() {
 
               <label>
                 Kategorien
+
                 {renderCategoryChoices(
                   editCategoryIds,
                   toggleEditCategory,
@@ -2672,6 +3292,7 @@ function App() {
 
               <label>
                 Sammlungen
+
                 {renderCollectionChoices(
                   editCollectionIds,
                   toggleEditCollection,
@@ -2679,8 +3300,8 @@ function App() {
               </label>
 
               <label>
-                Zutaten – eine Zeile
-                pro Zutat
+                Zutaten – eine Zeile pro Zutat
+
                 <textarea
                   value={
                     editIngredients
@@ -2695,8 +3316,8 @@ function App() {
               </label>
 
               <label>
-                Zubereitung – ein
-                Schritt pro Zeile
+                Zubereitung – ein Schritt pro Zeile
+
                 <textarea
                   value={
                     editPreparation
@@ -2725,9 +3346,7 @@ function App() {
         <div
           className="modal-backdrop"
           onClick={() =>
-            setShowNewCategory(
-              false,
-            )
+            setShowNewCategory(false)
           }
         >
           <div
@@ -2740,9 +3359,7 @@ function App() {
               className="modal-close"
               type="button"
               onClick={() =>
-                setShowNewCategory(
-                  false,
-                )
+                setShowNewCategory(false)
               }
             >
               ×
@@ -2765,11 +3382,14 @@ function App() {
 
             <div
               style={{
-                textAlign: 'center',
+                textAlign:
+                  'center',
+
                 fontSize:
                   newCategoryIcon
                     ? '3rem'
                     : '1rem',
+
                 margin:
                   '8px 0 18px',
               }}
@@ -2780,6 +3400,7 @@ function App() {
 
             <label>
               Kategoriename
+
               <input
                 value={
                   newCategoryName
@@ -2810,9 +3431,7 @@ function App() {
           <div
             className="modal-backdrop"
             onClick={() =>
-              setShowEditCategory(
-                false,
-              )
+              setShowEditCategory(false)
             }
           >
             <div
@@ -2825,9 +3444,7 @@ function App() {
                 className="modal-close"
                 type="button"
                 onClick={() =>
-                  setShowEditCategory(
-                    false,
-                  )
+                  setShowEditCategory(false)
                 }
               >
                 ×
@@ -2852,10 +3469,12 @@ function App() {
                 style={{
                   textAlign:
                     'center',
+
                   fontSize:
                     editCategoryIcon
                       ? '3rem'
                       : '1rem',
+
                   margin:
                     '8px 0 18px',
                 }}
@@ -2866,6 +3485,7 @@ function App() {
 
               <label>
                 Kategoriename
+
                 <input
                   value={
                     editCategoryName
@@ -2895,9 +3515,7 @@ function App() {
         <div
           className="modal-backdrop"
           onClick={() =>
-            setShowNewCollection(
-              false,
-            )
+            setShowNewCollection(false)
           }
         >
           <div
@@ -2910,9 +3528,7 @@ function App() {
               className="modal-close"
               type="button"
               onClick={() =>
-                setShowNewCollection(
-                  false,
-                )
+                setShowNewCollection(false)
               }
             >
               ×
@@ -2924,6 +3540,7 @@ function App() {
 
             <label>
               Name der Sammlung
+
               <input
                 value={
                   newCollectionName
@@ -2939,6 +3556,7 @@ function App() {
 
             <label>
               Beschreibung
+
               <textarea
                 value={
                   newCollectionDescription
@@ -2971,9 +3589,7 @@ function App() {
           <div
             className="modal-backdrop"
             onClick={() =>
-              setShowEditCollection(
-                false,
-              )
+              setShowEditCollection(false)
             }
           >
             <div
@@ -2986,9 +3602,7 @@ function App() {
                 className="modal-close"
                 type="button"
                 onClick={() =>
-                  setShowEditCollection(
-                    false,
-                  )
+                  setShowEditCollection(false)
                 }
               >
                 ×
@@ -3000,6 +3614,7 @@ function App() {
 
               <label>
                 Name der Sammlung
+
                 <input
                   value={
                     editCollectionName
@@ -3014,6 +3629,7 @@ function App() {
 
               <label>
                 Beschreibung
+
                 <textarea
                   value={
                     editCollectionDescription

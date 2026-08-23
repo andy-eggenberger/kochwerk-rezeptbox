@@ -173,6 +173,12 @@ function App() {
   const [editCollectionIds, setEditCollectionIds] =
     useState<number[]>([])
 
+  const [editNotes, setEditNotes] = useState('')
+  const [editSourceUrl, setEditSourceUrl] = useState('')
+  const [editSourceName, setEditSourceName] = useState('')
+  const [editImageUrl, setEditImageUrl] = useState('')
+  const [editFavorite, setEditFavorite] = useState(false)
+
   const [newTitle, setNewTitle] = useState('')
   const [newServings, setNewServings] = useState('')
   const [newTime, setNewTime] = useState('')
@@ -828,7 +834,66 @@ function App() {
         [],
     )
 
+    setEditNotes(
+      selectedRecipe.description ??
+        '',
+    )
+
+    setEditSourceUrl(
+      selectedRecipe.sourceUrl ??
+        '',
+    )
+
+    setEditSourceName(
+      selectedRecipe.sourceName ??
+        '',
+    )
+
+    setEditImageUrl(
+      selectedRecipe.sourceImageUrl ??
+        '',
+    )
+
+    setEditFavorite(
+      selectedRecipe.favorite ??
+        false,
+    )
+
     setShowEdit(true)
+  }
+
+  function handleEditImageFile(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file =
+      event.target.files?.[0]
+
+    event.target.value = ''
+
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      window.alert(
+        'Bitte eine Bilddatei auswählen.',
+      )
+      return
+    }
+
+    const reader =
+      new FileReader()
+
+    reader.onload = () => {
+      if (
+        typeof reader.result ===
+        'string'
+      ) {
+        setEditImageUrl(
+          reader.result,
+        )
+      }
+    }
+
+    reader.readAsDataURL(file)
   }
 
   async function saveEdit() {
@@ -880,6 +945,24 @@ function App() {
 
         collectionIds:
           editCollectionIds,
+
+        description:
+          editNotes.trim(),
+
+        sourceUrl:
+          editSourceUrl.trim() ||
+          undefined,
+
+        sourceName:
+          editSourceName.trim() ||
+          undefined,
+
+        sourceImageUrl:
+          editImageUrl.trim() ||
+          undefined,
+
+        favorite:
+          editFavorite,
 
         updatedAt:
           new Date(),
@@ -2062,6 +2145,25 @@ function App() {
               )}
             </div>
 
+            {selectedRecipe.description && (
+              <div className="recipe-detail-section">
+                <h3>
+                  Notizen
+                </h3>
+
+                <p
+                  style={{
+                    whiteSpace:
+                      'pre-wrap',
+                  }}
+                >
+                  {
+                    selectedRecipe.description
+                  }
+                </p>
+              </div>
+            )}
+
             {selectedRecipe.sourceUrl && (
               <div className="recipe-detail-source">
                 Quelle:{' '}
@@ -3220,6 +3322,12 @@ function App() {
               onClick={(event) =>
                 event.stopPropagation()
               }
+              style={{
+                maxHeight: '92vh',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
             >
               <button
                 className="modal-close"
@@ -3231,113 +3339,366 @@ function App() {
                 ×
               </button>
 
-              <h2>
+              <h2
+                style={{
+                  marginBottom: '14px',
+                  flexShrink: 0,
+                }}
+              >
                 Rezept bearbeiten
               </h2>
 
-              <label>
-                Titel
-
-                <input
-                  value={
-                    editTitle
-                  }
-                  onChange={(event) =>
-                    setEditTitle(
-                      event.target.value,
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                Portionen
-
-                <input
-                  value={
-                    editServings
-                  }
-                  onChange={(event) =>
-                    setEditServings(
-                      event.target.value,
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                Gesamtzeit in Minuten
-
-                <input
-                  type="number"
-                  value={
-                    editTime
-                  }
-                  onChange={(event) =>
-                    setEditTime(
-                      event.target.value,
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                Kategorien
-
-                {renderCategoryChoices(
-                  editCategoryIds,
-                  toggleEditCategory,
-                )}
-              </label>
-
-              <label>
-                Sammlungen
-
-                {renderCollectionChoices(
-                  editCollectionIds,
-                  toggleEditCollection,
-                )}
-              </label>
-
-              <label>
-                Zutaten – eine Zeile pro Zutat
-
-                <textarea
-                  value={
-                    editIngredients
-                  }
-                  onChange={(event) =>
-                    setEditIngredients(
-                      event.target.value,
-                    )
-                  }
-                  rows={10}
-                />
-              </label>
-
-              <label>
-                Zubereitung – ein Schritt pro Zeile
-
-                <textarea
-                  value={
-                    editPreparation
-                  }
-                  onChange={(event) =>
-                    setEditPreparation(
-                      event.target.value,
-                    )
-                  }
-                  rows={10}
-                />
-              </label>
-
-              <button
-                className="save-recipe-button"
-                type="button"
-                onClick={saveEdit}
+              <div
+                style={{
+                  overflowY: 'auto',
+                  paddingRight: '4px',
+                  marginRight: '-4px',
+                }}
               >
-                Änderungen speichern
-              </button>
+                <section
+                  style={{
+                    padding: '16px',
+                    marginBottom: '16px',
+                    border: '1px solid #e7ded4',
+                    borderRadius: '16px',
+                    background: '#faf8f5',
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: '0 0 14px',
+                      fontSize: '1rem',
+                    }}
+                  >
+                    Grunddaten
+                  </h3>
+
+                  <label>
+                    Titel
+
+                    <input
+                      value={
+                        editTitle
+                      }
+                      onChange={(event) =>
+                        setEditTitle(
+                          event.target.value,
+                        )
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    Portionen
+
+                    <input
+                      value={
+                        editServings
+                      }
+                      onChange={(event) =>
+                        setEditServings(
+                          event.target.value,
+                        )
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    Gesamtzeit in Minuten
+
+                    <input
+                      type="number"
+                      value={
+                        editTime
+                      }
+                      onChange={(event) =>
+                        setEditTime(
+                          event.target.value,
+                        )
+                      }
+                    />
+                  </label>
+
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      marginTop: '16px',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={editFavorite}
+                      onChange={(event) =>
+                        setEditFavorite(
+                          event.target.checked,
+                        )
+                      }
+                      style={{
+                        width: 'auto',
+                        margin: 0,
+                      }}
+                    />
+
+                    <span>
+                      Als Favorit markieren
+                    </span>
+                  </label>
+                </section>
+
+                <section
+                  style={{
+                    padding: '16px',
+                    marginBottom: '16px',
+                    border: '1px solid #e7ded4',
+                    borderRadius: '16px',
+                    background: '#faf8f5',
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: '0 0 14px',
+                      fontSize: '1rem',
+                    }}
+                  >
+                    Bild
+                  </h3>
+
+                  <label>
+                    Bild vom Gerät auswählen
+
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={
+                        handleEditImageFile
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    Bild-Link
+
+                    <input
+                      type="url"
+                      value={
+                        editImageUrl
+                      }
+                      onChange={(event) =>
+                        setEditImageUrl(
+                          event.target.value,
+                        )
+                      }
+                      placeholder="https://..."
+                    />
+                  </label>
+
+                  {editImageUrl && (
+                    <div
+                      style={{
+                        marginTop: '10px',
+                      }}
+                    >
+                      <img
+                        src={editImageUrl}
+                        alt="Vorschau"
+                        style={{
+                          width: '100%',
+                          maxHeight: '240px',
+                          objectFit: 'cover',
+                          borderRadius: '14px',
+                        }}
+                      />
+
+                      <button
+                        className="delete-button"
+                        type="button"
+                        style={{
+                          marginTop: '10px',
+                        }}
+                        onClick={() =>
+                          setEditImageUrl('')
+                        }
+                      >
+                        🗑️ Bild entfernen
+                      </button>
+                    </div>
+                  )}
+                </section>
+
+                <section
+                  style={{
+                    padding: '16px',
+                    marginBottom: '16px',
+                    border: '1px solid #e7ded4',
+                    borderRadius: '16px',
+                    background: '#faf8f5',
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: '0 0 14px',
+                      fontSize: '1rem',
+                    }}
+                  >
+                    Zuordnung
+                  </h3>
+
+                  <label>
+                    Kategorien
+
+                    {renderCategoryChoices(
+                      editCategoryIds,
+                      toggleEditCategory,
+                    )}
+                  </label>
+
+                  <label>
+                    Sammlungen
+
+                    {renderCollectionChoices(
+                      editCollectionIds,
+                      toggleEditCollection,
+                    )}
+                  </label>
+                </section>
+
+                <section
+                  style={{
+                    padding: '16px',
+                    marginBottom: '16px',
+                    border: '1px solid #e7ded4',
+                    borderRadius: '16px',
+                    background: '#faf8f5',
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: '0 0 14px',
+                      fontSize: '1rem',
+                    }}
+                  >
+                    Rezeptinhalt
+                  </h3>
+
+                  <label>
+                    Zutaten – eine Zeile pro Zutat
+
+                    <textarea
+                      value={
+                        editIngredients
+                      }
+                      onChange={(event) =>
+                        setEditIngredients(
+                          event.target.value,
+                        )
+                      }
+                      rows={10}
+                    />
+                  </label>
+
+                  <label>
+                    Zubereitung – ein Schritt pro Zeile
+
+                    <textarea
+                      value={
+                        editPreparation
+                      }
+                      onChange={(event) =>
+                        setEditPreparation(
+                          event.target.value,
+                        )
+                      }
+                      rows={10}
+                    />
+                  </label>
+                </section>
+
+                <section
+                  style={{
+                    padding: '16px',
+                    marginBottom: '8px',
+                    border: '1px solid #e7ded4',
+                    borderRadius: '16px',
+                    background: '#faf8f5',
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: '0 0 14px',
+                      fontSize: '1rem',
+                    }}
+                  >
+                    Quelle & Notizen
+                  </h3>
+
+                  <label>
+                    Eigene Notizen
+
+                    <textarea
+                      value={editNotes}
+                      onChange={(event) =>
+                        setEditNotes(
+                          event.target.value,
+                        )
+                      }
+                      rows={5}
+                      placeholder="Optional"
+                    />
+                  </label>
+
+                  <label>
+                    Quellenname
+
+                    <input
+                      value={editSourceName}
+                      onChange={(event) =>
+                        setEditSourceName(
+                          event.target.value,
+                        )
+                      }
+                      placeholder="z. B. migusto.ch"
+                    />
+                  </label>
+
+                  <label>
+                    Original-Link
+
+                    <input
+                      type="url"
+                      value={editSourceUrl}
+                      onChange={(event) =>
+                        setEditSourceUrl(
+                          event.target.value,
+                        )
+                      }
+                      placeholder="https://..."
+                    />
+                  </label>
+                </section>
+              </div>
+
+              <div
+                style={{
+                  flexShrink: 0,
+                  paddingTop: '14px',
+                  marginTop: '4px',
+                  borderTop: '1px solid #e5ded5',
+                  background: 'white',
+                }}
+              >
+                <button
+                  className="save-recipe-button"
+                  type="button"
+                  onClick={saveEdit}
+                  style={{
+                    marginTop: 0,
+                  }}
+                >
+                  Änderungen speichern
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -2026,7 +2026,7 @@ function App() {
     <div className="app">
       <header className="header">
         <img
-          src="/pwa-192x192.png"
+          src={`${import.meta.env.BASE_URL}pwa-192x192.png`}
           alt="Kochwerk"
           className="app-logo"
         />

@@ -852,6 +852,59 @@ function App() {
     }
   }
 
+  async function pasteImportUrlFromClipboard() {
+    try {
+      if (!navigator.clipboard?.readText) {
+        setImportMessage(
+          'Die Zwischenablage kann auf diesem Gerät nicht automatisch gelesen werden. Bitte den Link ins Feld einfügen.',
+        )
+        return
+      }
+
+      const clipboardText =
+        (await navigator.clipboard.readText()).trim()
+
+      if (!clipboardText) {
+        setImportMessage(
+          'In der Zwischenablage wurde kein Link gefunden.',
+        )
+        return
+      }
+
+      try {
+        const url = new URL(clipboardText)
+
+        if (
+          url.protocol !== 'http:' &&
+          url.protocol !== 'https:'
+        ) {
+          throw new Error('Ungültiges Protokoll')
+        }
+      } catch {
+        setImportMessage(
+          'Die Zwischenablage enthält keinen gültigen Webseiten-Link.',
+        )
+        return
+      }
+
+      setImportUrl(clipboardText)
+      setImportMessage(
+        'Link aus der Zwischenablage eingefügt.',
+      )
+      setRecipePreview(null)
+      setSaveStatus('idle')
+    } catch (error) {
+      console.error(
+        'Fehler beim Lesen der Zwischenablage:',
+        error,
+      )
+
+      setImportMessage(
+        'Die Zwischenablage konnte nicht gelesen werden. Bitte den Link ins Feld einfügen.',
+      )
+    }
+  }
+
   async function handleImport() {
     setImportLoading(true)
     setImportMessage('')
@@ -3580,6 +3633,20 @@ function App() {
               }}
               placeholder="https://..."
             />
+
+            <button
+              className="secondary"
+              type="button"
+              onClick={
+                pasteImportUrlFromClipboard
+              }
+              style={{
+                width: '100%',
+                marginTop: '12px',
+              }}
+            >
+              📋 Link aus Zwischenablage einfügen
+            </button>
 
             <button
               className="import-button"

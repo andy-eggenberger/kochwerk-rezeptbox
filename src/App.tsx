@@ -266,6 +266,25 @@ function App() {
 
   useEffect(() => {
     loadAllData()
+
+    const currentUrl = new URL(window.location.href)
+    const sharedImportUrl = currentUrl.searchParams.get('import')
+
+    if (sharedImportUrl) {
+      setImportUrl(sharedImportUrl)
+      setImportMessage('Link aus dem Teilen-Menü übernommen.')
+      setRecipePreview(null)
+      setSaveStatus('idle')
+      setShowImport(true)
+
+      currentUrl.searchParams.delete('import')
+
+      window.history.replaceState(
+        {},
+        '',
+        `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
+      )
+    }
   }, [])
 
   async function loadAllData() {

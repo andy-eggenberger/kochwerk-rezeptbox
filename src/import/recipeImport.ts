@@ -53,7 +53,8 @@ export function validateRecipeUrl(value: string): ImportResult {
   }
 }
 
-const IMPORT_WORKER_URL = 'http://127.0.0.1:8787'
+const IMPORT_WORKER_URL =
+  'https://kochwerk-import-worker.andy-kochwerk.workers.dev'
 
 export async function importRecipe(
   value: string,
@@ -70,6 +71,15 @@ export async function importRecipe(
         validation.sourceUrl,
       )}`,
     )
+
+    if (!response.ok) {
+      return {
+        success: false,
+        sourceUrl: validation.sourceUrl,
+        sourceName: validation.sourceName,
+        error: `Der Importdienst antwortet mit Fehler ${response.status}.`,
+      }
+    }
 
     const data = (await response.json()) as ImportResult
 

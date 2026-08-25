@@ -171,6 +171,9 @@ function App() {
   const [backupMessage, setBackupMessage] =
     useState('')
 
+  const [backupRestoreMode, setBackupRestoreMode] =
+    useState<'merge' | 'replace'>('merge')
+
   const [editTitle, setEditTitle] = useState('')
   const [editServings, setEditServings] = useState('')
   const [editTime, setEditTime] = useState('')
@@ -543,23 +546,6 @@ function App() {
         return
       }
 
-      const confirmed =
-        window.confirm(
-          `Sicherung wiederherstellen?\n\n` +
-            `Die aktuelle Kochwerk-Datenbank wird durch diese Sicherung ersetzt.\n\n` +
-            `In der Sicherung befinden sich:\n` +
-            `${parsed.recipes.length} Rezepte\n` +
-            `${parsed.categories.length} Kategorien\n` +
-            `${parsed.collections.length} Sammlungen`,
-        )
-
-      if (!confirmed) {
-        setBackupMessage(
-          'Wiederherstellung abgebrochen.',
-        )
-        return
-      }
-
       const restoredRecipes =
         parsed.recipes.map((recipe) => ({
           ...recipe,
@@ -593,41 +579,236 @@ function App() {
             recipe.favorite ?? false,
         }))
 
-      await db.transaction(
-        'rw',
-        db.recipes,
-        db.categories,
-        db.collections,
-        async () => {
-          await db.recipes.clear()
-          await db.categories.clear()
-          await db.collections.clear()
+      if (backupRestoreMode === 'replace') {
+        const confirmed =
+          window.confirm(
+            `Sicherung komplett wiederherstellen?\n\n` +
+              `ACHTUNG: Die aktuelle Kochwerk-Datenbank wird vollständig durch diese Sicherung ersetzt.\n\n` +
+              `In der Sicherung befinden sich:\n` +
+              `${parsed.recipes.length} Rezepte\n` +
+              `${parsed.categories.length} Kategorien\n` +
+              `${parsed.collections.length} Sammlungen`,
+          )
 
-          if (
-            parsed.categories!.length > 0
-          ) {
-            await db.categories.bulkPut(
-              parsed.categories!,
-            )
-          }
+        if (!confirmed) {
+          setBackupMessage(
+            'Wiederherstellung abgebrochen.',
+          )
+          return
+        }
 
-          if (
-            parsed.collections!.length > 0
-          ) {
-            await db.collections.bulkPut(
-              parsed.collections!,
-            )
-          }
+        await db.transaction(
+          'rw',
+          db.recipes,
+          db.categories,
+          db.collections,
+          async () => {
+            await db.recipes.clear()
+            await db.categories.clear()
+            await db.collections.clear()
 
-          if (
-            restoredRecipes.length > 0
-          ) {
-            await db.recipes.bulkPut(
-              restoredRecipes,
-            )
-          }
-        },
-      )
+            if (
+              parsed.categories.length > 0
+            ) {
+              await db.categories.bulkPut(
+                parsed.categories,
+              )
+            }
+
+            if (
+              parsed.collections.length > 0
+            ) {
+              await db.collections.bulkPut(
+                parsed.collections,
+              )
+            }
+
+            if (
+              restoredRecipes.length > 0
+            ) {
+              await db.recipes.bulkPut(
+                restoredRecipes,
+              )
+            }
+          },
+        )
+
+        setBackupMessage(
+          `Sicherung komplett wiederhergestellt: ${restoredRecipes.length} Rezepte.`,
+        )
+      } else {
+        const confirmed =
+          window.confirm(
+            `Sicherung zusammenführen?\n\n` +
+              `Deine vorhandenen Rezepte bleiben erhalten. Fehlende Rezepte, Kategorien und Sammlungen aus der Sicherung werden ergänzt. Doppelte Rezepte werden übersprungen.\n\n` +
+              `In der Sicherung befinden sich:\n` +
+              `${parsed.recipes.length} Rezepte\n` +
+              `${parsed.categories.length} Kategorien\n` +
+              `${parsed.collections.length} Sammlungen`,
+          )
+
+        if (!confirmed) {
+          setBackupMessage(
+            'Zusammenführen abgebrochen.',
+          )
+          return
+        }
+
+        let addedRecipes = 0
+        let skippedRecipes = 0
+        let addedCategories = 0
+        let addedCollections = 0
+
+        await db.transaction(
+          'rw',
+          db.recipes,
+          db.categories,
+          db.collections,
+          async () => {
+            const currentCategories =
+              await db.categories.toArray()
+
+            const currentCollections =
+              await db.collections.toArray()
+
+            const currentRecipes =
+              await db.recipes.toArray()
+
+            const categoryIdMap =
+              new Map<number, number>()
+
+            const collectionIdMap =
+              new Map<number, number>()
+
+            const normalize = (value?: string) =>
+              (value ?? '')
+                .trim()
+                .toLocaleLowerCase('de-CH')
+
+            for (const category of parsed.categories) {
+              const existing =
+                currentCategories.find(
+                  (item) =>
+                    normalize(item.name) ===
+                    normalize(category.name),
+                )
+
+              let targetId = existing?.id
+
+              if (!targetId) {
+                const categoryWithoutId = { ...category }
+                delete categoryWithoutId.id
+
+                targetId = await db.categories.add({
+                  ...categoryWithoutId,
+                  sortOrder:
+                    category.sortOrder ??
+                    currentCategories.length +
+                      addedCategories,
+                })
+
+                addedCategories += 1
+              }
+
+              if (category.id && targetId) {
+                categoryIdMap.set(
+                  category.id,
+                  targetId,
+                )
+              }
+            }
+
+            for (const collection of parsed.collections) {
+              const existing =
+                currentCollections.find(
+                  (item) =>
+                    normalize(item.name) ===
+                    normalize(collection.name),
+                )
+
+              let targetId = existing?.id
+
+              if (!targetId) {
+                const collectionWithoutId = { ...collection }
+                delete collectionWithoutId.id
+
+                targetId = await db.collections.add({
+                  ...collectionWithoutId,
+                  sortOrder:
+                    collection.sortOrder ??
+                    currentCollections.length +
+                      addedCollections,
+                })
+
+                addedCollections += 1
+              }
+
+              if (collection.id && targetId) {
+                collectionIdMap.set(
+                  collection.id,
+                  targetId,
+                )
+              }
+            }
+
+            const recipeKey = (recipe: Recipe) => {
+              const title = normalize(recipe.title)
+              const sourceUrl = normalize(recipe.sourceUrl)
+              const sourceName = normalize(recipe.sourceName)
+
+              return sourceUrl
+                ? `${title}|url:${sourceUrl}`
+                : `${title}|source:${sourceName}`
+            }
+
+            const existingRecipeKeys =
+              new Set(
+                currentRecipes.map(recipeKey),
+              )
+
+            for (const recipe of restoredRecipes) {
+              const key = recipeKey(recipe)
+
+              if (existingRecipeKeys.has(key)) {
+                skippedRecipes += 1
+                continue
+              }
+
+              const recipeWithoutId = { ...recipe }
+              delete recipeWithoutId.id
+
+              const mappedCategoryIds =
+                (recipe.categoryIds ?? [])
+                  .map((id) => categoryIdMap.get(id))
+                  .filter(
+                    (id): id is number =>
+                      typeof id === 'number',
+                  )
+
+              const mappedCollectionIds =
+                (recipe.collectionIds ?? [])
+                  .map((id) => collectionIdMap.get(id))
+                  .filter(
+                    (id): id is number =>
+                      typeof id === 'number',
+                  )
+
+              await db.recipes.add({
+                ...recipeWithoutId,
+                categoryIds: mappedCategoryIds,
+                collectionIds: mappedCollectionIds,
+              })
+
+              existingRecipeKeys.add(key)
+              addedRecipes += 1
+            }
+          },
+        )
+
+        setBackupMessage(
+          `Sicherung zusammengeführt: ${addedRecipes} neue Rezepte, ${skippedRecipes} doppelte übersprungen, ${addedCategories} neue Kategorien und ${addedCollections} neue Sammlungen.`,
+        )
+      }
 
       setSelectedRecipe(null)
       setSelectedCategory(null)
@@ -636,10 +817,6 @@ function App() {
       setView('home')
 
       await loadAllData()
-
-      setBackupMessage(
-        `Sicherung erfolgreich wiederhergestellt: ${restoredRecipes.length} Rezepte.`,
-      )
     } catch (error) {
       console.error(
         'Fehler beim Wiederherstellen:',
@@ -3222,9 +3399,84 @@ function App() {
                   lineHeight: 1.5,
                 }}
               >
-                Wähle eine zuvor erstellte
-                Kochwerk-Sicherungsdatei aus.
+                Wähle zuerst, wie die Sicherung eingelesen werden soll.
               </p>
+
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                  marginTop: '14px',
+                  fontWeight: 700,
+                }}
+              >
+                <input
+                  type="radio"
+                  name="backupRestoreMode"
+                  checked={backupRestoreMode === 'merge'}
+                  onChange={() =>
+                    setBackupRestoreMode('merge')
+                  }
+                  style={{
+                    width: 'auto',
+                    marginTop: '3px',
+                  }}
+                />
+
+                <span>
+                  Zusammenführen (empfohlen)
+                  <small
+                    style={{
+                      display: 'block',
+                      marginTop: '4px',
+                      color: '#706a62',
+                      fontWeight: 500,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    Vorhandene Rezepte bleiben erhalten. Fehlende werden ergänzt und doppelte übersprungen.
+                  </small>
+                </span>
+              </label>
+
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                  marginTop: '14px',
+                  fontWeight: 700,
+                }}
+              >
+                <input
+                  type="radio"
+                  name="backupRestoreMode"
+                  checked={backupRestoreMode === 'replace'}
+                  onChange={() =>
+                    setBackupRestoreMode('replace')
+                  }
+                  style={{
+                    width: 'auto',
+                    marginTop: '3px',
+                  }}
+                />
+
+                <span>
+                  Komplett ersetzen
+                  <small
+                    style={{
+                      display: 'block',
+                      marginTop: '4px',
+                      color: '#a33c31',
+                      fontWeight: 500,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    Achtung: Der aktuelle Inhalt wird vollständig durch die Sicherung ersetzt.
+                  </small>
+                </span>
+              </label>
 
               <input
                 type="file"
@@ -3232,6 +3484,9 @@ function App() {
                 onChange={
                   restoreBackup
                 }
+                style={{
+                  marginTop: '18px',
+                }}
               />
             </div>
 

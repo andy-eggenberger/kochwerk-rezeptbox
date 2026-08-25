@@ -260,6 +260,15 @@ function App() {
   const [sourceUrl, setSourceUrl] = useState('')
   const [sourceName, setSourceName] = useState('')
 
+  const [importCategoryIds, setImportCategoryIds] =
+    useState<number[]>([])
+
+  const [importCollectionIds, setImportCollectionIds] =
+    useState<number[]>([])
+
+  const [importFavorite, setImportFavorite] =
+    useState(false)
+
   const [saveStatus, setSaveStatus] = useState<
     'idle' | 'saving' | 'saved' | 'existing' | 'error'
   >('idle')
@@ -274,6 +283,9 @@ function App() {
       setImportUrl(sharedImportUrl)
       setImportMessage('Link aus dem Teilen-Menü übernommen.')
       setRecipePreview(null)
+      setImportCategoryIds([])
+      setImportCollectionIds([])
+      setImportFavorite(false)
       setSaveStatus('idle')
       setShowImport(true)
 
@@ -892,6 +904,9 @@ function App() {
         'Link aus der Zwischenablage eingefügt.',
       )
       setRecipePreview(null)
+      setImportCategoryIds([])
+      setImportCollectionIds([])
+      setImportFavorite(false)
       setSaveStatus('idle')
     } catch (error) {
       console.error(
@@ -909,6 +924,9 @@ function App() {
     setImportLoading(true)
     setImportMessage('')
     setRecipePreview(null)
+    setImportCategoryIds([])
+    setImportCollectionIds([])
+    setImportFavorite(false)
     setSaveStatus('idle')
 
     const result =
@@ -964,8 +982,8 @@ function App() {
 
         description: '',
 
-        categoryIds: [],
-        collectionIds: [],
+        categoryIds: importCategoryIds,
+        collectionIds: importCollectionIds,
 
         ingredients:
           recipePreview.ingredients.map(
@@ -1015,7 +1033,7 @@ function App() {
 
         imageIds: [],
 
-        favorite: false,
+        favorite: importFavorite,
 
         createdAt: now,
         updatedAt: now,
@@ -1032,6 +1050,38 @@ function App() {
 
       setSaveStatus('error')
     }
+  }
+
+  function toggleImportCategory(
+    categoryId: number,
+  ) {
+    setImportCategoryIds((current) =>
+      current.includes(categoryId)
+        ? current.filter(
+            (id) =>
+              id !== categoryId,
+          )
+        : [
+            ...current,
+            categoryId,
+          ],
+    )
+  }
+
+  function toggleImportCollection(
+    collectionId: number,
+  ) {
+    setImportCollectionIds((current) =>
+      current.includes(collectionId)
+        ? current.filter(
+            (id) =>
+              id !== collectionId,
+          )
+        : [
+            ...current,
+            collectionId,
+          ],
+    )
   }
 
   function saveButtonText() {
@@ -2694,6 +2744,9 @@ function App() {
                   setRecipePreview(
                     null,
                   )
+                  setImportCategoryIds([])
+                  setImportCollectionIds([])
+                  setImportFavorite(false)
                   setSaveStatus(
                     'idle',
                   )
@@ -3627,6 +3680,10 @@ function App() {
                   null,
                 )
 
+                setImportCategoryIds([])
+                setImportCollectionIds([])
+                setImportFavorite(false)
+
                 setSaveStatus(
                   'idle',
                 )
@@ -3735,6 +3792,65 @@ function App() {
                     ),
                   )}
                 </ol>
+
+                <div
+                  style={{
+                    marginTop: '24px',
+                    paddingTop: '20px',
+                    borderTop:
+                      '1px solid #e5ded5',
+                  }}
+                >
+                  <h4>
+                    Zuordnung vor dem Speichern
+                  </h4>
+
+                  <label>
+                    Kategorien
+
+                    {renderCategoryChoices(
+                      importCategoryIds,
+                      toggleImportCategory,
+                    )}
+                  </label>
+
+                  <label>
+                    Sammlungen
+
+                    {renderCollectionChoices(
+                      importCollectionIds,
+                      toggleImportCollection,
+                    )}
+                  </label>
+
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      marginTop: '18px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={importFavorite}
+                      onChange={(event) =>
+                        setImportFavorite(
+                          event.target.checked,
+                        )
+                      }
+                      style={{
+                        width: 'auto',
+                        margin: 0,
+                      }}
+                    />
+
+                    <span>
+                      ❤️ Als Favorit speichern
+                    </span>
+                  </label>
+                </div>
 
                 <button
                   className="save-recipe-button"

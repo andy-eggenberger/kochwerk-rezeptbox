@@ -1,3 +1,4 @@
+
 import {
   useEffect,
   useState,
@@ -155,24 +156,8 @@ function App() {
 
   const [searchQuery, setSearchQuery] = useState('')
 
-  const [searchCategoryId, setSearchCategoryId] =
-    useState<number | 'all'>('all')
-
-  const [searchCollectionId, setSearchCollectionId] =
-    useState<number | 'all'>('all')
-
-  const [searchFavoritesOnly, setSearchFavoritesOnly] =
-    useState(false)
-
-  const [searchSort, setSearchSort] = useState<
-    'az' | 'updated'
-  >('az')
-
   const [backupMessage, setBackupMessage] =
     useState('')
-
-  const [backupRestoreMode, setBackupRestoreMode] =
-    useState<'merge' | 'replace'>('merge')
 
   const [editTitle, setEditTitle] = useState('')
   const [editServings, setEditServings] = useState('')
@@ -359,6 +344,8 @@ function App() {
       .trim()
       .toLowerCase()
 
+    if (!query) return false
+
     const title =
       recipe.title?.toLowerCase() ?? ''
 
@@ -368,15 +355,6 @@ function App() {
       .map((ingredient) => ingredient.name)
       .join(' ')
       .toLowerCase()
-
-    const preparation = (
-      recipe.preparation ?? []
-    )
-      .join(' ')
-      .toLowerCase()
-
-    const notes =
-      recipe.description?.toLowerCase() ?? ''
 
     const source =
       recipe.sourceName?.toLowerCase() ?? ''
@@ -401,60 +379,20 @@ function App() {
       .join(' ')
       .toLowerCase()
 
-    const matchesText =
-      !query ||
+    return (
       title.includes(query) ||
       ingredients.includes(query) ||
-      preparation.includes(query) ||
-      notes.includes(query) ||
       source.includes(query) ||
       categoryNames.includes(query) ||
       collectionNames.includes(query)
-
-    const matchesCategory =
-      searchCategoryId === 'all' ||
-      (recipe.categoryIds ?? []).includes(
-        searchCategoryId,
-      )
-
-    const matchesCollection =
-      searchCollectionId === 'all' ||
-      (recipe.collectionIds ?? []).includes(
-        searchCollectionId,
-      )
-
-    const matchesFavorite =
-      !searchFavoritesOnly ||
-      Boolean(recipe.favorite)
-
-    return (
-      matchesText &&
-      matchesCategory &&
-      matchesCollection &&
-      matchesFavorite
     )
   }
 
   function startSearch() {
-    if (
-      !searchQuery.trim() &&
-      searchCategoryId === 'all' &&
-      searchCollectionId === 'all' &&
-      !searchFavoritesOnly
-    ) {
-      return
-    }
+    if (!searchQuery.trim()) return
 
     setSelectedRecipe(null)
     setView('search')
-  }
-
-  function resetSearchFilters() {
-    setSearchQuery('')
-    setSearchCategoryId('all')
-    setSearchCollectionId('all')
-    setSearchFavoritesOnly(false)
-    setSearchSort('az')
   }
 
   function createBackup() {
@@ -546,6 +484,23 @@ function App() {
         return
       }
 
+      const confirmed =
+        window.confirm(
+          `Sicherung wiederherstellen?\n\n` +
+            `Die aktuelle Kochwerk-Datenbank wird durch diese Sicherung ersetzt.\n\n` +
+            `In der Sicherung befinden sich:\n` +
+            `${parsed.recipes.length} Rezepte\n` +
+            `${parsed.categories.length} Kategorien\n` +
+            `${parsed.collections.length} Sammlungen`,
+        )
+
+      if (!confirmed) {
+        setBackupMessage(
+          'Wiederherstellung abgebrochen.',
+        )
+        return
+      }
+
       const restoredRecipes =
         parsed.recipes.map((recipe) => ({
           ...recipe,
@@ -579,236 +534,41 @@ function App() {
             recipe.favorite ?? false,
         }))
 
-      if (backupRestoreMode === 'replace') {
-        const confirmed =
-          window.confirm(
-            `Sicherung komplett wiederherstellen?\n\n` +
-              `ACHTUNG: Die aktuelle Kochwerk-Datenbank wird vollständig durch diese Sicherung ersetzt.\n\n` +
-              `In der Sicherung befinden sich:\n` +
-              `${parsed.recipes.length} Rezepte\n` +
-              `${parsed.categories.length} Kategorien\n` +
-              `${parsed.collections.length} Sammlungen`,
-          )
+      await db.transaction(
+        'rw',
+        db.recipes,
+        db.categories,
+        db.collections,
+        async () => {
+          await db.recipes.clear()
+          await db.categories.clear()
+          await db.collections.clear()
 
-        if (!confirmed) {
-          setBackupMessage(
-            'Wiederherstellung abgebrochen.',
-          )
-          return
-        }
+          if (
+            parsed.categories!.length > 0
+          ) {
+            await db.categories.bulkPut(
+              parsed.categories!,
+            )
+          }
 
-        await db.transaction(
-          'rw',
-          db.recipes,
-          db.categories,
-          db.collections,
-          async () => {
-            await db.recipes.clear()
-            await db.categories.clear()
-            await db.collections.clear()
+          if (
+            parsed.collections!.length > 0
+          ) {
+            await db.collections.bulkPut(
+              parsed.collections!,
+            )
+          }
 
-            if (
-              parsed.categories.length > 0
-            ) {
-              await db.categories.bulkPut(
-                parsed.categories,
-              )
-            }
-
-            if (
-              parsed.collections.length > 0
-            ) {
-              await db.collections.bulkPut(
-                parsed.collections,
-              )
-            }
-
-            if (
-              restoredRecipes.length > 0
-            ) {
-              await db.recipes.bulkPut(
-                restoredRecipes,
-              )
-            }
-          },
-        )
-
-        setBackupMessage(
-          `Sicherung komplett wiederhergestellt: ${restoredRecipes.length} Rezepte.`,
-        )
-      } else {
-        const confirmed =
-          window.confirm(
-            `Sicherung zusammenführen?\n\n` +
-              `Deine vorhandenen Rezepte bleiben erhalten. Fehlende Rezepte, Kategorien und Sammlungen aus der Sicherung werden ergänzt. Doppelte Rezepte werden übersprungen.\n\n` +
-              `In der Sicherung befinden sich:\n` +
-              `${parsed.recipes.length} Rezepte\n` +
-              `${parsed.categories.length} Kategorien\n` +
-              `${parsed.collections.length} Sammlungen`,
-          )
-
-        if (!confirmed) {
-          setBackupMessage(
-            'Zusammenführen abgebrochen.',
-          )
-          return
-        }
-
-        let addedRecipes = 0
-        let skippedRecipes = 0
-        let addedCategories = 0
-        let addedCollections = 0
-
-        await db.transaction(
-          'rw',
-          db.recipes,
-          db.categories,
-          db.collections,
-          async () => {
-            const currentCategories =
-              await db.categories.toArray()
-
-            const currentCollections =
-              await db.collections.toArray()
-
-            const currentRecipes =
-              await db.recipes.toArray()
-
-            const categoryIdMap =
-              new Map<number, number>()
-
-            const collectionIdMap =
-              new Map<number, number>()
-
-            const normalize = (value?: string) =>
-              (value ?? '')
-                .trim()
-                .toLocaleLowerCase('de-CH')
-
-            for (const category of parsed.categories) {
-              const existing =
-                currentCategories.find(
-                  (item) =>
-                    normalize(item.name) ===
-                    normalize(category.name),
-                )
-
-              let targetId = existing?.id
-
-              if (!targetId) {
-                const categoryWithoutId = { ...category }
-                delete categoryWithoutId.id
-
-                targetId = await db.categories.add({
-                  ...categoryWithoutId,
-                  sortOrder:
-                    category.sortOrder ??
-                    currentCategories.length +
-                      addedCategories,
-                })
-
-                addedCategories += 1
-              }
-
-              if (category.id && targetId) {
-                categoryIdMap.set(
-                  category.id,
-                  targetId,
-                )
-              }
-            }
-
-            for (const collection of parsed.collections) {
-              const existing =
-                currentCollections.find(
-                  (item) =>
-                    normalize(item.name) ===
-                    normalize(collection.name),
-                )
-
-              let targetId = existing?.id
-
-              if (!targetId) {
-                const collectionWithoutId = { ...collection }
-                delete collectionWithoutId.id
-
-                targetId = await db.collections.add({
-                  ...collectionWithoutId,
-                  sortOrder:
-                    collection.sortOrder ??
-                    currentCollections.length +
-                      addedCollections,
-                })
-
-                addedCollections += 1
-              }
-
-              if (collection.id && targetId) {
-                collectionIdMap.set(
-                  collection.id,
-                  targetId,
-                )
-              }
-            }
-
-            const recipeKey = (recipe: Recipe) => {
-              const title = normalize(recipe.title)
-              const sourceUrl = normalize(recipe.sourceUrl)
-              const sourceName = normalize(recipe.sourceName)
-
-              return sourceUrl
-                ? `${title}|url:${sourceUrl}`
-                : `${title}|source:${sourceName}`
-            }
-
-            const existingRecipeKeys =
-              new Set(
-                currentRecipes.map(recipeKey),
-              )
-
-            for (const recipe of restoredRecipes) {
-              const key = recipeKey(recipe)
-
-              if (existingRecipeKeys.has(key)) {
-                skippedRecipes += 1
-                continue
-              }
-
-              const recipeWithoutId = { ...recipe }
-              delete recipeWithoutId.id
-
-              const mappedCategoryIds =
-                (recipe.categoryIds ?? [])
-                  .map((id) => categoryIdMap.get(id))
-                  .filter(
-                    (id): id is number =>
-                      typeof id === 'number',
-                  )
-
-              const mappedCollectionIds =
-                (recipe.collectionIds ?? [])
-                  .map((id) => collectionIdMap.get(id))
-                  .filter(
-                    (id): id is number =>
-                      typeof id === 'number',
-                  )
-
-              await db.recipes.add({
-                ...recipeWithoutId,
-                categoryIds: mappedCategoryIds,
-                collectionIds: mappedCollectionIds,
-              })
-
-              existingRecipeKeys.add(key)
-              addedRecipes += 1
-            }
-          },
-        )
-
-        setBackupMessage(
-          `Sicherung zusammengeführt: ${addedRecipes} neue Rezepte, ${skippedRecipes} doppelte übersprungen, ${addedCategories} neue Kategorien und ${addedCollections} neue Sammlungen.`,
-        )
-      }
+          if (
+            restoredRecipes.length > 0
+          ) {
+            await db.recipes.bulkPut(
+              restoredRecipes,
+            )
+          }
+        },
+      )
 
       setSelectedRecipe(null)
       setSelectedCategory(null)
@@ -817,6 +577,10 @@ function App() {
       setView('home')
 
       await loadAllData()
+
+      setBackupMessage(
+        `Sicherung erfolgreich wiederhergestellt: ${restoredRecipes.length} Rezepte.`,
+      )
     } catch (error) {
       console.error(
         'Fehler beim Wiederherstellen:',
@@ -2175,35 +1939,15 @@ function App() {
       : []
 
   const searchResults =
-    recipes
-      .filter(
-        recipeMatchesSearch,
-      )
-      .sort((a, b) => {
-        if (searchSort === 'updated') {
-          const aTime = a.updatedAt
-            ? new Date(a.updatedAt).getTime()
-            : 0
-
-          const bTime = b.updatedAt
-            ? new Date(b.updatedAt).getTime()
-            : 0
-
-          return bTime - aTime
-        }
-
-        return a.title.localeCompare(
-          b.title,
-          'de',
-          { sensitivity: 'base' },
-        )
-      })
+    recipes.filter(
+      recipeMatchesSearch,
+    )
 
   return (
     <div className="app">
       <header className="header">
         <img
-          src={`${import.meta.env.BASE_URL}pwa-192x192.png`}
+          src="/pwa-192x192.png"
           alt="Kochwerk"
           className="app-logo"
         />
@@ -2664,13 +2408,11 @@ function App() {
                 </h2>
 
                 <p>
-                  {searchResults.length}{' '}
-                  {searchResults.length === 1
-                    ? 'Treffer'
-                    : 'Treffer'}
-                  {searchQuery.trim()
-                    ? ` für „${searchQuery.trim()}“`
-                    : ''}
+                  {
+                    searchResults.length
+                  }{' '}
+                  Treffer für „
+                  {searchQuery}“
                 </p>
               </div>
             </div>
@@ -2704,186 +2446,19 @@ function App() {
                 placeholder="Neue Suche …"
               />
 
-              <div
+              <button
+                className="primary"
+                type="button"
+                onClick={
+                  startSearch
+                }
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    'repeat(auto-fit, minmax(180px, 1fr))',
-                  gap: '12px',
-                  marginTop: '16px',
+                  width: '100%',
+                  marginTop: '14px',
                 }}
               >
-                <label
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                    fontWeight: 700,
-                  }}
-                >
-                  Kategorie
-
-                  <select
-                    value={searchCategoryId}
-                    onChange={(event) => {
-                      const value =
-                        event.target.value
-
-                      setSearchCategoryId(
-                        value === 'all'
-                          ? 'all'
-                          : Number(value),
-                      )
-                    }}
-                  >
-                    <option value="all">
-                      Alle Kategorien
-                    </option>
-
-                    {categories.map(
-                      (category) =>
-                        category.id ? (
-                          <option
-                            key={category.id}
-                            value={category.id}
-                          >
-                            {categoryDisplay(
-                              category,
-                            )}
-                          </option>
-                        ) : null,
-                    )}
-                  </select>
-                </label>
-
-                <label
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                    fontWeight: 700,
-                  }}
-                >
-                  Sammlung
-
-                  <select
-                    value={searchCollectionId}
-                    onChange={(event) => {
-                      const value =
-                        event.target.value
-
-                      setSearchCollectionId(
-                        value === 'all'
-                          ? 'all'
-                          : Number(value),
-                      )
-                    }}
-                  >
-                    <option value="all">
-                      Alle Sammlungen
-                    </option>
-
-                    {collections.map(
-                      (collection) =>
-                        collection.id ? (
-                          <option
-                            key={collection.id}
-                            value={collection.id}
-                          >
-                            🗃️ {collection.name}
-                          </option>
-                        ) : null,
-                    )}
-                  </select>
-                </label>
-
-                <label
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                    fontWeight: 700,
-                  }}
-                >
-                  Sortierung
-
-                  <select
-                    value={searchSort}
-                    onChange={(event) =>
-                      setSearchSort(
-                        event.target.value as
-                          | 'az'
-                          | 'updated',
-                      )
-                    }
-                  >
-                    <option value="az">
-                      A–Z
-                    </option>
-                    <option value="updated">
-                      Zuletzt geändert
-                    </option>
-                  </select>
-                </label>
-              </div>
-
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '9px',
-                  marginTop: '16px',
-                  fontWeight: 700,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={searchFavoritesOnly}
-                  onChange={(event) =>
-                    setSearchFavoritesOnly(
-                      event.target.checked,
-                    )
-                  }
-                  style={{
-                    width: 'auto',
-                    margin: 0,
-                  }}
-                />
-
-                ❤️ Nur Favoriten
-              </label>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    '1fr 1fr',
-                  gap: '10px',
-                  marginTop: '16px',
-                }}
-              >
-                <button
-                  className="primary"
-                  type="button"
-                  onClick={startSearch}
-                  disabled={
-                    !searchQuery.trim() &&
-                    searchCategoryId === 'all' &&
-                    searchCollectionId === 'all' &&
-                    !searchFavoritesOnly
-                  }
-                >
-                  🔎 Anwenden
-                </button>
-
-                <button
-                  className="secondary"
-                  type="button"
-                  onClick={resetSearchFilters}
-                >
-                  ↺ Zurücksetzen
-                </button>
-              </div>
+                🔎 Suchen
+              </button>
             </section>
 
             {renderRecipeGrid(
@@ -3399,84 +2974,9 @@ function App() {
                   lineHeight: 1.5,
                 }}
               >
-                Wähle zuerst, wie die Sicherung eingelesen werden soll.
+                Wähle eine zuvor erstellte
+                Kochwerk-Sicherungsdatei aus.
               </p>
-
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '10px',
-                  marginTop: '14px',
-                  fontWeight: 700,
-                }}
-              >
-                <input
-                  type="radio"
-                  name="backupRestoreMode"
-                  checked={backupRestoreMode === 'merge'}
-                  onChange={() =>
-                    setBackupRestoreMode('merge')
-                  }
-                  style={{
-                    width: 'auto',
-                    marginTop: '3px',
-                  }}
-                />
-
-                <span>
-                  Zusammenführen (empfohlen)
-                  <small
-                    style={{
-                      display: 'block',
-                      marginTop: '4px',
-                      color: '#706a62',
-                      fontWeight: 500,
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    Vorhandene Rezepte bleiben erhalten. Fehlende werden ergänzt und doppelte übersprungen.
-                  </small>
-                </span>
-              </label>
-
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '10px',
-                  marginTop: '14px',
-                  fontWeight: 700,
-                }}
-              >
-                <input
-                  type="radio"
-                  name="backupRestoreMode"
-                  checked={backupRestoreMode === 'replace'}
-                  onChange={() =>
-                    setBackupRestoreMode('replace')
-                  }
-                  style={{
-                    width: 'auto',
-                    marginTop: '3px',
-                  }}
-                />
-
-                <span>
-                  Komplett ersetzen
-                  <small
-                    style={{
-                      display: 'block',
-                      marginTop: '4px',
-                      color: '#a33c31',
-                      fontWeight: 500,
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    Achtung: Der aktuelle Inhalt wird vollständig durch die Sicherung ersetzt.
-                  </small>
-                </span>
-              </label>
 
               <input
                 type="file"
@@ -3484,9 +2984,6 @@ function App() {
                 onChange={
                   restoreBackup
                 }
-                style={{
-                  marginTop: '18px',
-                }}
               />
             </div>
 
@@ -3826,12 +3323,6 @@ function App() {
               onClick={(event) =>
                 event.stopPropagation()
               }
-              style={{
-                maxHeight: '92vh',
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
             >
               <button
                 className="modal-close"
@@ -3843,366 +3334,246 @@ function App() {
                 ×
               </button>
 
-              <h2
-                style={{
-                  marginBottom: '14px',
-                  flexShrink: 0,
-                }}
-              >
+              <h2>
                 Rezept bearbeiten
               </h2>
 
-              <div
+              <label>
+                Titel
+
+                <input
+                  value={
+                    editTitle
+                  }
+                  onChange={(event) =>
+                    setEditTitle(
+                      event.target.value,
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                Portionen
+
+                <input
+                  value={
+                    editServings
+                  }
+                  onChange={(event) =>
+                    setEditServings(
+                      event.target.value,
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                Gesamtzeit in Minuten
+
+                <input
+                  type="number"
+                  value={
+                    editTime
+                  }
+                  onChange={(event) =>
+                    setEditTime(
+                      event.target.value,
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                Bild
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={
+                    handleEditImageFile
+                  }
+                />
+              </label>
+
+              <label>
+                Bild-Link
+
+                <input
+                  type="url"
+                  value={
+                    editImageUrl
+                  }
+                  onChange={(event) =>
+                    setEditImageUrl(
+                      event.target.value,
+                    )
+                  }
+                  placeholder="https://..."
+                />
+              </label>
+
+              {editImageUrl && (
+                <div
+                  style={{
+                    marginTop: '10px',
+                    marginBottom: '18px',
+                  }}
+                >
+                  <img
+                    src={editImageUrl}
+                    alt="Vorschau"
+                    style={{
+                      width: '100%',
+                      maxHeight: '260px',
+                      objectFit: 'cover',
+                      borderRadius: '14px',
+                    }}
+                  />
+
+                  <button
+                    className="delete-button"
+                    type="button"
+                    style={{
+                      marginTop: '10px',
+                    }}
+                    onClick={() =>
+                      setEditImageUrl('')
+                    }
+                  >
+                    🗑️ Bild entfernen
+                  </button>
+                </div>
+              )}
+
+              <label>
+                Kategorien
+
+                {renderCategoryChoices(
+                  editCategoryIds,
+                  toggleEditCategory,
+                )}
+              </label>
+
+              <label>
+                Sammlungen
+
+                {renderCollectionChoices(
+                  editCollectionIds,
+                  toggleEditCollection,
+                )}
+              </label>
+
+              <label>
+                Zutaten – eine Zeile pro Zutat
+
+                <textarea
+                  value={
+                    editIngredients
+                  }
+                  onChange={(event) =>
+                    setEditIngredients(
+                      event.target.value,
+                    )
+                  }
+                  rows={10}
+                />
+              </label>
+
+              <label>
+                Zubereitung – ein Schritt pro Zeile
+
+                <textarea
+                  value={
+                    editPreparation
+                  }
+                  onChange={(event) =>
+                    setEditPreparation(
+                      event.target.value,
+                    )
+                  }
+                  rows={10}
+                />
+              </label>
+
+              <label>
+                Eigene Notizen
+
+                <textarea
+                  value={editNotes}
+                  onChange={(event) =>
+                    setEditNotes(
+                      event.target.value,
+                    )
+                  }
+                  rows={5}
+                  placeholder="Optional"
+                />
+              </label>
+
+              <label>
+                Quellenname
+
+                <input
+                  value={editSourceName}
+                  onChange={(event) =>
+                    setEditSourceName(
+                      event.target.value,
+                    )
+                  }
+                  placeholder="z. B. migusto.ch"
+                />
+              </label>
+
+              <label>
+                Original-Link
+
+                <input
+                  type="url"
+                  value={editSourceUrl}
+                  onChange={(event) =>
+                    setEditSourceUrl(
+                      event.target.value,
+                    )
+                  }
+                  placeholder="https://..."
+                />
+              </label>
+
+              <label
                 style={{
-                  overflowY: 'auto',
-                  paddingRight: '4px',
-                  marginRight: '-4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  marginTop: '16px',
                 }}
               >
-                <section
+                <input
+                  type="checkbox"
+                  checked={editFavorite}
+                  onChange={(event) =>
+                    setEditFavorite(
+                      event.target.checked,
+                    )
+                  }
                   style={{
-                    padding: '16px',
-                    marginBottom: '16px',
-                    border: '1px solid #e7ded4',
-                    borderRadius: '16px',
-                    background: '#faf8f5',
+                    width: 'auto',
+                    margin: 0,
                   }}
-                >
-                  <h3
-                    style={{
-                      margin: '0 0 14px',
-                      fontSize: '1rem',
-                    }}
-                  >
-                    Grunddaten
-                  </h3>
+                />
 
-                  <label>
-                    Titel
+                <span>
+                  Als Favorit markieren
+                </span>
+              </label>
 
-                    <input
-                      value={
-                        editTitle
-                      }
-                      onChange={(event) =>
-                        setEditTitle(
-                          event.target.value,
-                        )
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    Portionen
-
-                    <input
-                      value={
-                        editServings
-                      }
-                      onChange={(event) =>
-                        setEditServings(
-                          event.target.value,
-                        )
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    Gesamtzeit in Minuten
-
-                    <input
-                      type="number"
-                      value={
-                        editTime
-                      }
-                      onChange={(event) =>
-                        setEditTime(
-                          event.target.value,
-                        )
-                      }
-                    />
-                  </label>
-
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      marginTop: '16px',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={editFavorite}
-                      onChange={(event) =>
-                        setEditFavorite(
-                          event.target.checked,
-                        )
-                      }
-                      style={{
-                        width: 'auto',
-                        margin: 0,
-                      }}
-                    />
-
-                    <span>
-                      Als Favorit markieren
-                    </span>
-                  </label>
-                </section>
-
-                <section
-                  style={{
-                    padding: '16px',
-                    marginBottom: '16px',
-                    border: '1px solid #e7ded4',
-                    borderRadius: '16px',
-                    background: '#faf8f5',
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: '0 0 14px',
-                      fontSize: '1rem',
-                    }}
-                  >
-                    Bild
-                  </h3>
-
-                  <label>
-                    Bild vom Gerät auswählen
-
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={
-                        handleEditImageFile
-                      }
-                    />
-                  </label>
-
-                  <label>
-                    Bild-Link
-
-                    <input
-                      type="url"
-                      value={
-                        editImageUrl
-                      }
-                      onChange={(event) =>
-                        setEditImageUrl(
-                          event.target.value,
-                        )
-                      }
-                      placeholder="https://..."
-                    />
-                  </label>
-
-                  {editImageUrl && (
-                    <div
-                      style={{
-                        marginTop: '10px',
-                      }}
-                    >
-                      <img
-                        src={editImageUrl}
-                        alt="Vorschau"
-                        style={{
-                          width: '100%',
-                          maxHeight: '240px',
-                          objectFit: 'cover',
-                          borderRadius: '14px',
-                        }}
-                      />
-
-                      <button
-                        className="delete-button"
-                        type="button"
-                        style={{
-                          marginTop: '10px',
-                        }}
-                        onClick={() =>
-                          setEditImageUrl('')
-                        }
-                      >
-                        🗑️ Bild entfernen
-                      </button>
-                    </div>
-                  )}
-                </section>
-
-                <section
-                  style={{
-                    padding: '16px',
-                    marginBottom: '16px',
-                    border: '1px solid #e7ded4',
-                    borderRadius: '16px',
-                    background: '#faf8f5',
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: '0 0 14px',
-                      fontSize: '1rem',
-                    }}
-                  >
-                    Zuordnung
-                  </h3>
-
-                  <label>
-                    Kategorien
-
-                    {renderCategoryChoices(
-                      editCategoryIds,
-                      toggleEditCategory,
-                    )}
-                  </label>
-
-                  <label>
-                    Sammlungen
-
-                    {renderCollectionChoices(
-                      editCollectionIds,
-                      toggleEditCollection,
-                    )}
-                  </label>
-                </section>
-
-                <section
-                  style={{
-                    padding: '16px',
-                    marginBottom: '16px',
-                    border: '1px solid #e7ded4',
-                    borderRadius: '16px',
-                    background: '#faf8f5',
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: '0 0 14px',
-                      fontSize: '1rem',
-                    }}
-                  >
-                    Rezeptinhalt
-                  </h3>
-
-                  <label>
-                    Zutaten – eine Zeile pro Zutat
-
-                    <textarea
-                      value={
-                        editIngredients
-                      }
-                      onChange={(event) =>
-                        setEditIngredients(
-                          event.target.value,
-                        )
-                      }
-                      rows={10}
-                    />
-                  </label>
-
-                  <label>
-                    Zubereitung – ein Schritt pro Zeile
-
-                    <textarea
-                      value={
-                        editPreparation
-                      }
-                      onChange={(event) =>
-                        setEditPreparation(
-                          event.target.value,
-                        )
-                      }
-                      rows={10}
-                    />
-                  </label>
-                </section>
-
-                <section
-                  style={{
-                    padding: '16px',
-                    marginBottom: '8px',
-                    border: '1px solid #e7ded4',
-                    borderRadius: '16px',
-                    background: '#faf8f5',
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: '0 0 14px',
-                      fontSize: '1rem',
-                    }}
-                  >
-                    Quelle & Notizen
-                  </h3>
-
-                  <label>
-                    Eigene Notizen
-
-                    <textarea
-                      value={editNotes}
-                      onChange={(event) =>
-                        setEditNotes(
-                          event.target.value,
-                        )
-                      }
-                      rows={5}
-                      placeholder="Optional"
-                    />
-                  </label>
-
-                  <label>
-                    Quellenname
-
-                    <input
-                      value={editSourceName}
-                      onChange={(event) =>
-                        setEditSourceName(
-                          event.target.value,
-                        )
-                      }
-                      placeholder="z. B. migusto.ch"
-                    />
-                  </label>
-
-                  <label>
-                    Original-Link
-
-                    <input
-                      type="url"
-                      value={editSourceUrl}
-                      onChange={(event) =>
-                        setEditSourceUrl(
-                          event.target.value,
-                        )
-                      }
-                      placeholder="https://..."
-                    />
-                  </label>
-                </section>
-              </div>
-
-              <div
-                style={{
-                  flexShrink: 0,
-                  paddingTop: '14px',
-                  marginTop: '4px',
-                  borderTop: '1px solid #e5ded5',
-                  background: 'white',
-                }}
+              <button
+                className="save-recipe-button"
+                type="button"
+                onClick={saveEdit}
               >
-                <button
-                  className="save-recipe-button"
-                  type="button"
-                  onClick={saveEdit}
-                  style={{
-                    marginTop: 0,
-                  }}
-                >
-                  Änderungen speichern
-                </button>
-              </div>
+                Änderungen speichern
+              </button>
             </div>
           </div>
         )}
@@ -4525,3 +3896,4 @@ function App() {
 }
 
 export default App
+

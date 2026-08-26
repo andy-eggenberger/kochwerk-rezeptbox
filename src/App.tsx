@@ -969,6 +969,51 @@ function App() {
     reader.readAsDataURL(file)
   }
 
+  function handleFacebookImageDrop(
+    event: React.DragEvent<HTMLDivElement>,
+  ) {
+    event.preventDefault()
+
+    const file =
+      event.dataTransfer.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setImportMessage(
+        'Bitte eine Bilddatei hierher ziehen.',
+      )
+      return
+    }
+
+    const reader =
+      new FileReader()
+
+    reader.onload = () => {
+      if (
+        typeof reader.result ===
+        'string'
+      ) {
+        setImportImageUrl(
+          reader.result,
+        )
+        setImportMessage(
+          'Bild per Drag & Drop übernommen.',
+        )
+      }
+    }
+
+    reader.readAsDataURL(file)
+  }
+
+  function handleFacebookImageDragOver(
+    event: React.DragEvent<HTMLDivElement>,
+  ) {
+    event.preventDefault()
+  }
+
   async function pasteFacebookImageFromClipboard() {
     try {
       if (!navigator.clipboard?.read) {
@@ -4095,28 +4140,35 @@ function App() {
                 </button>
 
                 <div
+                  onDrop={
+                    handleFacebookImageDrop
+                  }
+                  onDragOver={
+                    handleFacebookImageDragOver
+                  }
                   style={{
                     marginTop: '18px',
-                    padding: '14px',
+                    padding: '16px',
                     border:
-                      '1px solid #e5ded5',
+                      '2px dashed #b9b09f',
                     borderRadius: '14px',
                     background: '#faf8f5',
+                    textAlign: 'center',
                   }}
                 >
                   <strong>
-                    Bild zum Rezept
+                    🖼️ Bild zum Rezept
                   </strong>
 
                   <p
                     style={{
                       margin:
-                        '6px 0 10px',
+                        '8px 0 12px',
                       color: '#706a62',
                       lineHeight: 1.4,
                     }}
                   >
-                    Optional: Bild aus Facebook kopieren oder vom Gerät auswählen.
+                    Bild einfach hierher ziehen oder unten auswählen.
                   </p>
 
                   <input

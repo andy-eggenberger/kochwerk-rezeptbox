@@ -251,6 +251,12 @@ function App() {
   const [importUrl, setImportUrl] = useState('')
   const [importMessage, setImportMessage] = useState('')
 
+  const [importMode, setImportMode] =
+    useState<'link' | 'facebookText'>('link')
+
+  const [facebookText, setFacebookText] =
+    useState('')
+
   const [importLoading, setImportLoading] =
     useState(false)
 
@@ -918,6 +924,129 @@ function App() {
         'Die Zwischenablage konnte nicht gelesen werden. Bitte den Link ins Feld einfügen.',
       )
     }
+  }
+
+  async function pasteFacebookTextFromClipboard() {
+    try {
+      if (!navigator.clipboard?.readText) {
+        setImportMessage(
+          'Die Zwischenablage kann auf diesem Gerät nicht automatisch gelesen werden. Bitte den Facebook-Text ins Feld einfügen.',
+        )
+        return
+      }
+
+      const clipboardText =
+        (await navigator.clipboard.readText()).trim()
+
+      if (!clipboardText) {
+        setImportMessage(
+          'In der Zwischenablage wurde kein Text gefunden.',
+        )
+        return
+      }
+
+      setFacebookText(clipboardText)
+      setImportMessage(
+        'Facebook-Text aus der Zwischenablage eingefügt.',
+      )
+      setRecipePreview(null)
+      setImportCategoryIds([])
+      setImportCollectionIds([])
+      setImportFavorite(false)
+      setSaveStatus('idle')
+    } catch (error) {
+      console.error(
+        'Fehler beim Lesen der Zwischenablage:',
+        error,
+      )
+
+      setImportMessage(
+        'Die Zwischenablage konnte nicht gelesen werden. Bitte den Facebook-Text ins Feld einfügen.',
+      )
+    }
+  }
+
+  async function handleFacebookTextImport() {
+    const text =
+      facebookText.trim()
+
+    if (!text) {
+      setImportMessage(
+        'Bitte zuerst den Text des Facebook-Rezepts einfügen.',
+      )
+      return
+    }
+
+    setImportLoading(true)
+    setImportMessage('')
+    setRecipePreview(null)
+    setImportCategoryIds([])
+    setImportCollectionIds([])
+    setImportFavorite(false)
+    setSaveStatus('idle')
+
+    try {
+      const response =
+        await fetch(
+          'https://kochwerk-import-worker.andy-kochwerk.workers.dev/import-text',
+          {
+            method: 'POST',
+            headers: {
+              'content-type':
+                'application/json',
+            },
+            body:
+              JSON.stringify({
+                text,
+                sourceName:
+                  'facebook.com',
+              }),
+          },
+        )
+
+      const result =
+        await response.json() as {
+          success: boolean
+          sourceUrl?: string
+          sourceName?: string
+          recipe?: ImportedRecipe
+          error?: string
+        }
+
+      if (
+        response.ok &&
+        result.success &&
+        result.recipe
+      ) {
+        setRecipePreview(result.recipe)
+        setSourceUrl(
+          result.sourceUrl ?? '',
+        )
+        setSourceName(
+          result.sourceName ??
+            'facebook.com',
+        )
+        setImportMessage(
+          'Facebook-Rezept erkannt.',
+        )
+      } else {
+        setImportMessage(
+          result.error ??
+            `Der Importdienst antwortet mit Fehler ${response.status}.`,
+        )
+      }
+    } catch (error) {
+      console.error(
+        'Fehler beim Facebook-Textimport:',
+        error,
+      )
+
+      setImportMessage(
+        'Der Facebook-Text konnte nicht ausgewertet werden.',
+      )
+    }
+
+    setImportLoading(false)
   }
 
   async function handleImport() {
@@ -2740,6 +2869,7 @@ function App() {
                 className="secondary"
                 type="button"
                 onClick={() => {
+                  setImportMode('link')
                   setImportMessage('')
                   setRecipePreview(
                     null,
@@ -3660,66 +3790,169 @@ function App() {
               Rezept importieren
             </h2>
 
-            <p>
-              Füge den Link zu einer
-              Rezept-Webseite ein.
-            </p>
-
-            <input
-              className="import-input"
-              type="url"
-              value={importUrl}
-              onChange={(event) => {
-                setImportUrl(
-                  event.target.value,
-                )
-
-                setImportMessage('')
-
-                setRecipePreview(
-                  null,
-                )
-
-                setImportCategoryIds([])
-                setImportCollectionIds([])
-                setImportFavorite(false)
-
-                setSaveStatus(
-                  'idle',
-                )
-              }}
-              placeholder="https://..."
-            />
-
-            <button
-              className="secondary"
-              type="button"
-              onClick={
-                pasteImportUrlFromClipboard
-              }
+            <div
               style={{
-                width: '100%',
-                marginTop: '12px',
+                display: 'grid',
+                gridTemplateColumns:
+                  '1fr 1fr',
+                gap: '10px',
+                marginBottom: '18px',
               }}
             >
-              📋 Link aus Zwischenablage einfügen
-            </button>
+              <button
+                className={
+                  importMode === 'link'
+                    ? 'primary'
+                    : 'secondary'
+                }
+                type="button"
+                onClick={() => {
+                  setImportMode('link')
+                  setImportMessage('')
+                  setRecipePreview(null)
+                  setSaveStatus('idle')
+                }}
+              >
+                🔗 Link
+              </button>
 
-            <button
-              className="import-button"
-              type="button"
-              disabled={
-                !importUrl.trim() ||
-                importLoading
-              }
-              onClick={
-                handleImport
-              }
-            >
-              {importLoading
-                ? 'Rezept wird eingelesen …'
-                : 'Rezept einlesen'}
-            </button>
+              <button
+                className={
+                  importMode === 'facebookText'
+                    ? 'primary'
+                    : 'secondary'
+                }
+                type="button"
+                onClick={() => {
+                  setImportMode(
+                    'facebookText',
+                  )
+                  setImportMessage('')
+                  setRecipePreview(null)
+                  setSaveStatus('idle')
+                }}
+              >
+                Facebook-Text
+              </button>
+            </div>
+
+            {importMode === 'link' ? (
+              <>
+                <p>
+                  Füge den Link zu einer
+                  Rezept-Webseite ein.
+                </p>
+
+                <input
+                  className="import-input"
+                  type="url"
+                  value={importUrl}
+                  onChange={(event) => {
+                    setImportUrl(
+                      event.target.value,
+                    )
+
+                    setImportMessage('')
+                    setRecipePreview(null)
+                    setImportCategoryIds([])
+                    setImportCollectionIds([])
+                    setImportFavorite(false)
+                    setSaveStatus('idle')
+                  }}
+                  placeholder="https://..."
+                />
+
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={
+                    pasteImportUrlFromClipboard
+                  }
+                  style={{
+                    width: '100%',
+                    marginTop: '12px',
+                  }}
+                >
+                  📋 Link aus Zwischenablage einfügen
+                </button>
+
+                <button
+                  className="import-button"
+                  type="button"
+                  disabled={
+                    !importUrl.trim() ||
+                    importLoading
+                  }
+                  onClick={
+                    handleImport
+                  }
+                >
+                  {importLoading
+                    ? 'Rezept wird eingelesen …'
+                    : 'Rezept einlesen'}
+                </button>
+              </>
+            ) : (
+              <>
+                <p>
+                  Kopiere bei Facebook den
+                  Rezepttext oder die Beschreibung
+                  und füge sie hier ein.
+                </p>
+
+                <textarea
+                  value={facebookText}
+                  onChange={(event) => {
+                    setFacebookText(
+                      event.target.value,
+                    )
+                    setImportMessage('')
+                    setRecipePreview(null)
+                    setImportCategoryIds([])
+                    setImportCollectionIds([])
+                    setImportFavorite(false)
+                    setSaveStatus('idle')
+                  }}
+                  rows={12}
+                  placeholder={
+                    'Rezeptname\n\nZutaten:\n...\n\nZubereitung:\n...'
+                  }
+                  style={{
+                    width: '100%',
+                  }}
+                />
+
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={
+                    pasteFacebookTextFromClipboard
+                  }
+                  style={{
+                    width: '100%',
+                    marginTop: '12px',
+                  }}
+                >
+                  📋 Facebook-Text aus Zwischenablage einfügen
+                </button>
+
+                <button
+                  className="import-button"
+                  type="button"
+                  disabled={
+                    !facebookText.trim() ||
+                    importLoading
+                  }
+                  onClick={
+                    handleFacebookTextImport
+                  }
+                >
+                  {importLoading
+                    ? 'Facebook-Text wird ausgewertet …'
+                    : 'Facebook-Rezept auswerten'}
+                </button>
+              </>
+            )}
 
             {importMessage && (
               <p className="import-message">

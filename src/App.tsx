@@ -257,6 +257,12 @@ function App() {
   const [facebookText, setFacebookText] =
     useState('')
 
+  const [importNotes, setImportNotes] =
+    useState('')
+
+  const [importImageUrl, setImportImageUrl] =
+    useState('')
+
   const [importLoading, setImportLoading] =
     useState(false)
 
@@ -926,6 +932,131 @@ function App() {
     }
   }
 
+  function handleFacebookImageFile(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file =
+      event.target.files?.[0]
+
+    event.target.value = ''
+
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      setImportMessage(
+        'Bitte eine Bilddatei auswählen.',
+      )
+      return
+    }
+
+    const reader =
+      new FileReader()
+
+    reader.onload = () => {
+      if (
+        typeof reader.result ===
+        'string'
+      ) {
+        setImportImageUrl(
+          reader.result,
+        )
+        setImportMessage(
+          'Bild übernommen.',
+        )
+      }
+    }
+
+    reader.readAsDataURL(file)
+  }
+
+  async function pasteFacebookImageFromClipboard() {
+    try {
+      if (!navigator.clipboard?.read) {
+        setImportMessage(
+          'Ein Bild kann auf diesem Gerät nicht automatisch aus der Zwischenablage gelesen werden. Bitte das Bild vom Gerät auswählen.',
+        )
+        return
+      }
+
+      const items =
+        await navigator.clipboard.read()
+
+      for (const item of items) {
+        const imageType =
+          item.types.find(
+            (type) =>
+              type.startsWith('image/'),
+          )
+
+        if (!imageType) continue
+
+        const blob =
+          await item.getType(
+            imageType,
+          )
+
+        const reader =
+          new FileReader()
+
+        const dataUrl =
+          await new Promise<string>(
+            (resolve, reject) => {
+              reader.onload = () => {
+                if (
+                  typeof reader.result ===
+                  'string'
+                ) {
+                  resolve(
+                    reader.result,
+                  )
+                } else {
+                  reject(
+                    new Error(
+                      'Bild konnte nicht gelesen werden.',
+                    ),
+                  )
+                }
+              }
+
+              reader.onerror =
+                () =>
+                  reject(
+                    reader.error ??
+                      new Error(
+                        'Bild konnte nicht gelesen werden.',
+                      ),
+                  )
+
+              reader.readAsDataURL(
+                blob,
+              )
+            },
+          )
+
+        setImportImageUrl(
+          dataUrl,
+        )
+        setImportMessage(
+          'Bild aus der Zwischenablage übernommen.',
+        )
+        return
+      }
+
+      setImportMessage(
+        'In der Zwischenablage wurde kein Bild gefunden.',
+      )
+    } catch (error) {
+      console.error(
+        'Fehler beim Lesen des Bildes aus der Zwischenablage:',
+        error,
+      )
+
+      setImportMessage(
+        'Das Bild konnte nicht aus der Zwischenablage gelesen werden. Bitte das Bild vom Gerät auswählen.',
+      )
+    }
+  }
+
   async function pasteFacebookTextFromClipboard() {
     try {
       if (!navigator.clipboard?.readText) {
@@ -950,6 +1081,7 @@ function App() {
         'Facebook-Text aus der Zwischenablage eingefügt.',
       )
       setRecipePreview(null)
+      setImportNotes('')
       setImportCategoryIds([])
       setImportCollectionIds([])
       setImportFavorite(false)
@@ -1009,7 +1141,9 @@ function App() {
           success: boolean
           sourceUrl?: string
           sourceName?: string
-          recipe?: ImportedRecipe
+          recipe?: ImportedRecipe & {
+            notes?: string
+          }
           error?: string
         }
 
@@ -1025,6 +1159,16 @@ function App() {
         setSourceName(
           result.sourceName ??
             'facebook.com',
+        )
+        setImportNotes(
+          result.recipe.notes ??
+            '',
+        )
+        setImportImageUrl(
+          (current) =>
+            current ||
+            result.recipe?.image ||
+            '',
         )
         setImportMessage(
           'Facebook-Rezept erkannt.',
@@ -1053,6 +1197,8 @@ function App() {
     setImportLoading(true)
     setImportMessage('')
     setRecipePreview(null)
+    setImportNotes('')
+    setImportImageUrl('')
     setImportCategoryIds([])
     setImportCollectionIds([])
     setImportFavorite(false)
@@ -1069,6 +1215,11 @@ function App() {
       setSourceUrl(result.sourceUrl)
       setSourceName(
         result.sourceName ?? '',
+      )
+      setImportNotes('')
+      setImportImageUrl(
+        result.recipe.image ??
+          '',
       )
 
       setImportMessage(
@@ -1109,7 +1260,7 @@ function App() {
       await db.recipes.add({
         title: recipePreview.title,
 
-        description: '',
+        description: importNotes,
 
         categoryIds: importCategoryIds,
         collectionIds: importCollectionIds,
@@ -1158,6 +1309,7 @@ function App() {
         sourceName,
 
         sourceImageUrl:
+          importImageUrl ||
           recipePreview.image,
 
         imageIds: [],
@@ -2874,6 +3026,8 @@ function App() {
                   setRecipePreview(
                     null,
                   )
+                  setImportNotes('')
+                  setImportImageUrl('')
                   setImportCategoryIds([])
                   setImportCollectionIds([])
                   setImportFavorite(false)
@@ -3810,6 +3964,8 @@ function App() {
                   setImportMode('link')
                   setImportMessage('')
                   setRecipePreview(null)
+                  setImportNotes('')
+                  setImportImageUrl('')
                   setSaveStatus('idle')
                 }}
               >
@@ -3829,6 +3985,8 @@ function App() {
                   )
                   setImportMessage('')
                   setRecipePreview(null)
+                  setImportNotes('')
+                  setImportImageUrl('')
                   setSaveStatus('idle')
                 }}
               >
@@ -3936,6 +4094,95 @@ function App() {
                   📋 Facebook-Text aus Zwischenablage einfügen
                 </button>
 
+                <div
+                  style={{
+                    marginTop: '18px',
+                    padding: '14px',
+                    border:
+                      '1px solid #e5ded5',
+                    borderRadius: '14px',
+                    background: '#faf8f5',
+                  }}
+                >
+                  <strong>
+                    Bild zum Rezept
+                  </strong>
+
+                  <p
+                    style={{
+                      margin:
+                        '6px 0 10px',
+                      color: '#706a62',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    Optional: Bild aus Facebook kopieren oder vom Gerät auswählen.
+                  </p>
+
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={
+                      handleFacebookImageFile
+                    }
+                  />
+
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={
+                      pasteFacebookImageFromClipboard
+                    }
+                    style={{
+                      width: '100%',
+                      marginTop: '10px',
+                    }}
+                  >
+                    📋 Bild aus Zwischenablage übernehmen
+                  </button>
+
+                  {importImageUrl && (
+                    <div
+                      style={{
+                        marginTop:
+                          '12px',
+                      }}
+                    >
+                      <img
+                        src={
+                          importImageUrl
+                        }
+                        alt="Facebook-Rezept"
+                        style={{
+                          width: '100%',
+                          maxHeight:
+                            '260px',
+                          objectFit:
+                            'cover',
+                          borderRadius:
+                            '12px',
+                        }}
+                      />
+
+                      <button
+                        className="delete-button"
+                        type="button"
+                        onClick={() =>
+                          setImportImageUrl(
+                            '',
+                          )
+                        }
+                        style={{
+                          marginTop:
+                            '8px',
+                        }}
+                      >
+                        🗑️ Bild entfernen
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <button
                   className="import-button"
                   type="button"
@@ -3962,9 +4209,11 @@ function App() {
 
             {recipePreview && (
               <div className="recipe-preview">
-                {recipePreview.image && (
+                {(importImageUrl ||
+                  recipePreview.image) && (
                   <img
                     src={
+                      importImageUrl ||
                       recipePreview.image
                     }
                     alt={
@@ -4025,6 +4274,23 @@ function App() {
                     ),
                   )}
                 </ol>
+
+                {importNotes && (
+                  <>
+                    <h4>
+                      Tipp / Hinweis
+                    </h4>
+
+                    <p
+                      style={{
+                        whiteSpace:
+                          'pre-wrap',
+                      }}
+                    >
+                      {importNotes}
+                    </p>
+                  </>
+                )}
 
                 <div
                   style={{

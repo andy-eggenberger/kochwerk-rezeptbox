@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.2.0'
+const APP_VERSION = '0.2.2'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -4165,6 +4165,20 @@ function App() {
                 {backupMessage}
               </p>
             )}
+
+            <button
+              className="back-button"
+              type="button"
+              onClick={() =>
+                setShowBackup(false)
+              }
+              style={{
+                width: '100%',
+                marginTop: '10px',
+              }}
+            >
+              × Schließen
+            </button>
           </div>
         </div>
       )}
@@ -4631,6 +4645,27 @@ function App() {
                 </button>
               </div>
             )}
+
+            <div
+              style={{
+                marginTop: '22px',
+                paddingTop: '16px',
+                borderTop: '1px solid #e5ded5',
+              }}
+            >
+              <button
+                className="back-button"
+                type="button"
+                onClick={() =>
+                  setShowImport(false)
+                }
+                style={{
+                  width: '100%',
+                }}
+              >
+                × Schließen
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -4774,6 +4809,20 @@ function App() {
               }
             >
               Rezept speichern
+            </button>
+
+            <button
+              className="back-button"
+              type="button"
+              onClick={() =>
+                setShowNewRecipe(false)
+              }
+              style={{
+                width: '100%',
+                marginTop: '10px',
+              }}
+            >
+              × Schließen
             </button>
           </div>
         </div>
@@ -5285,6 +5334,20 @@ function App() {
             >
               Kategorie speichern
             </button>
+
+            <button
+              className="back-button"
+              type="button"
+              onClick={() =>
+                setShowNewCategory(false)
+              }
+              style={{
+                width: '100%',
+                marginTop: '10px',
+              }}
+            >
+              × Schließen
+            </button>
           </div>
         </div>
       )}
@@ -5370,6 +5433,20 @@ function App() {
               >
                 Änderungen speichern
               </button>
+
+            <button
+              className="back-button"
+              type="button"
+              onClick={() =>
+                setShowEditCategory(false)
+              }
+              style={{
+                width: '100%',
+                marginTop: '10px',
+              }}
+            >
+              × Schließen
+            </button>
             </div>
           </div>
         )}
@@ -5443,6 +5520,20 @@ function App() {
             >
               Sammlung speichern
             </button>
+
+            <button
+              className="back-button"
+              type="button"
+              onClick={() =>
+                setShowNewCollection(false)
+              }
+              style={{
+                width: '100%',
+                marginTop: '10px',
+              }}
+            >
+              × Schließen
+            </button>
           </div>
         </div>
       )}
@@ -5515,6 +5606,20 @@ function App() {
               >
                 Änderungen speichern
               </button>
+
+            <button
+              className="back-button"
+              type="button"
+              onClick={() =>
+                setShowEditCollection(false)
+              }
+              style={{
+                width: '100%',
+                marginTop: '10px',
+              }}
+            >
+              × Schließen
+            </button>
             </div>
           </div>
         )}

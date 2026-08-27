@@ -37,6 +37,32 @@ type BackupData = {
   collections: Collection[]
 }
 
+function getBuildVersion() {
+  const scriptSources =
+    Array.from(document.scripts)
+      .map((script) => script.src)
+      .filter(Boolean)
+
+  const appScript =
+    scriptSources.find((src) =>
+      /\/assets\/index-[^/]+\.js(?:\?|$)/.test(src),
+    )
+
+  const match =
+    appScript?.match(
+      /\/assets\/index-([^/.]+)\.js/,
+    )
+
+  if (match?.[1]) {
+    return match[1].slice(0, 8)
+  }
+
+  return 'DEV'
+}
+
+const BUILD_VERSION =
+  getBuildVersion()
+
 const CATEGORY_ICONS = [
   '🍽️',
   '🥣',
@@ -969,21 +995,106 @@ function App() {
     reader.readAsDataURL(file)
   }
 
+  function getDroppedImageSource(
+    event: React.DragEvent<HTMLDivElement>,
+  ) {
+    const imageFile =
+      Array.from(
+        event.dataTransfer.files ?? [],
+      ).find(
+        (file) =>
+          file.type.startsWith(
+            'image/',
+          ),
+      )
+
+    if (imageFile) {
+      return {
+        type: 'file' as const,
+        file: imageFile,
+      }
+    }
+
+    const html =
+      event.dataTransfer.getData(
+        'text/html',
+      )
+
+    if (html) {
+      const match =
+        html.match(
+          /<img[^>]+src=["']([^"']+)["']/i,
+        )
+
+      if (match?.[1]) {
+        return {
+          type: 'url' as const,
+          url: match[1],
+        }
+      }
+    }
+
+    const uriList =
+      event.dataTransfer.getData(
+        'text/uri-list',
+      )
+
+    const plainText =
+      event.dataTransfer.getData(
+        'text/plain',
+      )
+
+    const candidate =
+      (
+        uriList ||
+        plainText
+      )
+        .split(/\r?\n/)
+        .map(
+          (value) =>
+            value.trim(),
+        )
+        .find(
+          (value) =>
+            /^https?:\/\//i.test(
+              value,
+            ),
+        )
+
+    if (candidate) {
+      return {
+        type: 'url' as const,
+        url: candidate,
+      }
+    }
+
+    return null
+  }
+
   function handleFacebookImageDrop(
     event: React.DragEvent<HTMLDivElement>,
   ) {
     event.preventDefault()
+    event.stopPropagation()
 
-    const file =
-      event.dataTransfer.files?.[0]
+    const dropped =
+      getDroppedImageSource(
+        event,
+      )
 
-    if (!file) {
+    if (!dropped) {
+      setImportMessage(
+        'Das gezogene Element konnte nicht als Bild erkannt werden.',
+      )
       return
     }
 
-    if (!file.type.startsWith('image/')) {
+    if (dropped.type === 'url') {
+      setImportImageUrl(
+        dropped.url,
+      )
       setImportMessage(
-        'Bitte eine Bilddatei hierher ziehen.',
+        'Bild per Drag & Drop übernommen.',
       )
       return
     }
@@ -1005,7 +1116,9 @@ function App() {
       }
     }
 
-    reader.readAsDataURL(file)
+    reader.readAsDataURL(
+      dropped.file,
+    )
   }
 
   function handleFacebookImageDragOver(
@@ -1366,6 +1479,8 @@ function App() {
       })
 
       setSaveStatus('saved')
+      setImportUrl('')
+      setFacebookText('')
 
       await loadRecipes()
     } catch (error) {
@@ -1583,6 +1698,56 @@ function App() {
     }
 
     reader.readAsDataURL(file)
+  }
+
+  function handleEditImageDrop(
+    event: React.DragEvent<HTMLDivElement>,
+  ) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const dropped =
+      getDroppedImageSource(
+        event,
+      )
+
+    if (!dropped) {
+      window.alert(
+        'Das gezogene Element konnte nicht als Bild erkannt werden.',
+      )
+      return
+    }
+
+    if (dropped.type === 'url') {
+      setEditImageUrl(
+        dropped.url,
+      )
+      return
+    }
+
+    const reader =
+      new FileReader()
+
+    reader.onload = () => {
+      if (
+        typeof reader.result ===
+        'string'
+      ) {
+        setEditImageUrl(
+          reader.result,
+        )
+      }
+    }
+
+    reader.readAsDataURL(
+      dropped.file,
+    )
+  }
+
+  function handleEditImageDragOver(
+    event: React.DragEvent<HTMLDivElement>,
+  ) {
+    event.preventDefault()
   }
 
   async function saveEdit() {
@@ -2889,6 +3054,39 @@ function App() {
                 </a>
               </div>
             )}
+
+            <div
+              style={{
+                marginTop: '30px',
+                paddingTop: '20px',
+                borderTop:
+                  '1px solid #e5ded5',
+              }}
+            >
+              <button
+                className="back-button"
+                type="button"
+                onClick={() => {
+                  setSelectedRecipe(
+                    null,
+                  )
+
+                  requestAnimationFrame(
+                    () =>
+                      window.scrollTo({
+                        top: 0,
+                        behavior:
+                          'smooth',
+                      }),
+                  )
+                }}
+                style={{
+                  width: '100%',
+                }}
+              >
+                ← Zurück
+              </button>
+            </div>
           </section>
         ) : view === 'home' ? (
           <>
@@ -3067,6 +3265,8 @@ function App() {
                 type="button"
                 onClick={() => {
                   setImportMode('link')
+                  setImportUrl('')
+                  setFacebookText('')
                   setImportMessage('')
                   setRecipePreview(
                     null,
@@ -3789,7 +3989,7 @@ function App() {
       </main>
 
       <footer>
-        Kochwerk v0.1.0
+        Kochwerk · Version {BUILD_VERSION}
       </footer>
 
       {showBackup && (
@@ -4154,7 +4354,9 @@ function App() {
                     borderRadius: '14px',
                     background: '#faf8f5',
                     textAlign: 'center',
+                    cursor: 'copy',
                   }}
+                  title="Bild aus Firefox hierher ziehen"
                 >
                   <strong>
                     🖼️ Bild zum Rezept
@@ -4168,7 +4370,7 @@ function App() {
                       lineHeight: 1.4,
                     }}
                   >
-                    Bild einfach hierher ziehen oder unten auswählen.
+                    Bild direkt aus Firefox hierher ziehen – oder unten auswählen.
                   </p>
 
                   <input
@@ -4709,22 +4911,40 @@ function App() {
                 </section>
 
                 <section
+                  onDrop={
+                    handleEditImageDrop
+                  }
+                  onDragOver={
+                    handleEditImageDragOver
+                  }
                   style={{
                     padding: '16px',
                     marginBottom: '16px',
-                    border: '1px solid #e7ded4',
+                    border: '2px dashed #b9b09f',
                     borderRadius: '16px',
                     background: '#faf8f5',
+                    cursor: 'copy',
                   }}
+                  title="Bild aus Firefox hierher ziehen"
                 >
                   <h3
                     style={{
-                      margin: '0 0 14px',
+                      margin: '0 0 8px',
                       fontSize: '1rem',
                     }}
                   >
-                    Bild
+                    🖼️ Bild
                   </h3>
+
+                  <p
+                    style={{
+                      margin: '0 0 14px',
+                      color: '#706a62',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    Bild direkt aus Firefox in diesen Bereich ziehen – oder unten auswählen.
+                  </p>
 
                   <label>
                     Bild vom Gerät auswählen

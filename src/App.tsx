@@ -37,31 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-function getBuildVersion() {
-  const scriptSources =
-    Array.from(document.scripts)
-      .map((script) => script.src)
-      .filter(Boolean)
-
-  const appScript =
-    scriptSources.find((src) =>
-      /\/assets\/index-[^/]+\.js(?:\?|$)/.test(src),
-    )
-
-  const match =
-    appScript?.match(
-      /\/assets\/index-([^/.]+)\.js/,
-    )
-
-  if (match?.[1]) {
-    return match[1].slice(0, 8)
-  }
-
-  return 'DEV'
-}
-
-const BUILD_VERSION =
-  getBuildVersion()
+const APP_VERSION = '0.2.0'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -3984,12 +3960,43 @@ function App() {
                 ? favoriteRecipes
                 : recipes,
             )}
+
+            <div
+              style={{
+                marginTop: '28px',
+                paddingTop: '18px',
+                borderTop:
+                  '1px solid #e5ded5',
+              }}
+            >
+              <button
+                className="back-button"
+                type="button"
+                onClick={() => {
+                  setView('home')
+
+                  requestAnimationFrame(
+                    () =>
+                      window.scrollTo({
+                        top: 0,
+                        behavior:
+                          'smooth',
+                      }),
+                  )
+                }}
+                style={{
+                  width: '100%',
+                }}
+              >
+                ← Zurück
+              </button>
+            </div>
           </section>
         )}
       </main>
 
       <footer>
-        Kochwerk · Version {BUILD_VERSION}
+        Kochwerk · Version {APP_VERSION}
       </footer>
 
       {showBackup && (
@@ -5178,6 +5185,20 @@ function App() {
                   }}
                 >
                   Änderungen speichern
+                </button>
+
+                <button
+                  className="back-button"
+                  type="button"
+                  onClick={() =>
+                    setShowEdit(false)
+                  }
+                  style={{
+                    width: '100%',
+                    marginTop: '10px',
+                  }}
+                >
+                  ← Zurück
                 </button>
               </div>
             </div>

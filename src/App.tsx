@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.4.0'
+const APP_VERSION = '0.4.1'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -5308,101 +5308,14 @@ function App() {
               Es werden dabei noch keine Rezepte übertragen oder verändert.
             </p>
 
-            <label>
-              NAS-API-Adresse
-
-              <input
-                type="url"
-                value={nasUrl}
-                onChange={(event) => {
-                  setNasUrl(
-                    event.target.value,
-                  )
-                  setNasMessage('')
-                }}
-                placeholder="https://.../kochwerk.php"
-              />
-            </label>
-
-            <label>
-              Kochwerk-Schlüssel
-
-              <input
-                type="password"
-                value={nasKey}
-                onChange={(event) => {
-                  setNasKey(
-                    event.target.value,
-                  )
-                  setNasMessage('')
-                }}
-                placeholder="Schlüssel aus kochwerk-config.php"
-                autoComplete="off"
-              />
-            </label>
-
-            <p
-              style={{
-                marginTop: '8px',
-                color: '#706a62',
-                fontSize: '0.9rem',
-                lineHeight: 1.4,
-              }}
-            >
-              Der Schlüssel wird nur in diesem Browser auf diesem Gerät gespeichert
-              und nicht in GitHub eingebaut.
-            </p>
-
-            <button
-              className="secondary"
-              type="button"
-              onClick={saveNasSettings}
-              style={{
-                width: '100%',
-                marginTop: '14px',
-              }}
-            >
-              💾 Einstellungen speichern
-            </button>
-
-            <button
-              className="save-recipe-button"
-              type="button"
-              onClick={testNasConnection}
-              disabled={nasTesting}
-            >
-              {nasTesting
-                ? 'Verbindung wird geprüft …'
-                : '🔌 NAS-Verbindung testen'}
-            </button>
-
-            <button
-              className="secondary"
-              type="button"
-              onClick={runNasSyncNow}
-              disabled={
-                nasSyncStatus ===
-                'syncing'
-              }
-              style={{
-                width: '100%',
-                marginTop: '10px',
-              }}
-            >
-              {nasSyncStatus ===
-              'syncing'
-                ? '☁️ Synchronisiere …'
-                : '🔄 Jetzt synchronisieren'}
-            </button>
-
             <div
               style={{
-                marginTop: '10px',
-                padding: '10px 12px',
-                borderRadius: '10px',
+                padding: '12px 14px',
+                borderRadius: '12px',
                 background: '#faf8f5',
                 textAlign: 'center',
                 fontWeight: 700,
+                marginBottom: '12px',
               }}
             >
               {nasSyncStatus ===
@@ -5437,123 +5350,237 @@ function App() {
             </div>
 
             <button
-              className="save-recipe-button"
-              type="button"
-              onClick={uploadCurrentDataToNas}
-              disabled={
-                nasUploading ||
-                nasTesting ||
-                nasDataExists
-              }
-              style={{
-                marginTop: '10px',
-              }}
-            >
-              {nasUploading
-                ? 'Daten werden übertragen …'
-                : nasDataExists
-                  ? '✓ NAS enthält bereits Kochwerk-Daten'
-                  : '⬆️ Ersten Stand auf NAS übertragen'}
-            </button>
-
-            <button
               className="secondary"
               type="button"
-              onClick={checkNasDataWithoutImport}
+              onClick={runNasSyncNow}
               disabled={
-                nasPullChecking ||
-                nasTesting ||
-                nasUploading
+                nasSyncStatus ===
+                'syncing'
               }
               style={{
                 width: '100%',
-                marginTop: '10px',
+                marginTop: '4px',
               }}
             >
-              {nasPullChecking
-                ? 'NAS-Stand wird gelesen …'
-                : '🔎 NAS-Stand prüfen'}
+              {nasSyncStatus ===
+              'syncing'
+                ? '☁️ Synchronisiere …'
+                : '🔄 Jetzt synchronisieren'}
             </button>
 
-            {nasPreview && (
+            <details
+              style={{
+                marginTop: '16px',
+                border:
+                  '1px solid #e5ded5',
+                borderRadius: '12px',
+                padding: '10px 12px',
+                background: '#fff',
+              }}
+            >
+              <summary
+                style={{
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  userSelect: 'none',
+                }}
+              >
+                ⚙️ NAS-Einstellungen & Diagnose
+              </summary>
+
               <div
                 style={{
                   marginTop: '14px',
-                  padding: '14px',
-                  border:
-                    '1px solid #e5ded5',
-                  borderRadius: '12px',
-                  background: '#faf8f5',
-                  lineHeight: 1.6,
                 }}
               >
-                <strong>
-                  NAS-Inhalt
-                </strong>
+                <label>
+                  NAS-API-Adresse
 
-                <div>
-                  {nasPreview.recipeCount}{' '}
-                  Rezepte
-                </div>
+                  <input
+                    type="url"
+                    value={nasUrl}
+                    onChange={(event) => {
+                      setNasUrl(
+                        event.target.value,
+                      )
+                      setNasMessage('')
+                    }}
+                    placeholder="https://.../kochwerk.php"
+                  />
+                </label>
 
-                <div>
-                  {nasPreview.categoryCount}{' '}
-                  Kategorien
-                </div>
+                <label>
+                  Kochwerk-Schlüssel
 
-                <div>
-                  {nasPreview.collectionCount}{' '}
-                  Sammlungen
-                </div>
+                  <input
+                    type="password"
+                    value={nasKey}
+                    onChange={(event) => {
+                      setNasKey(
+                        event.target.value,
+                      )
+                      setNasMessage('')
+                    }}
+                    placeholder="Schlüssel aus kochwerk-config.php"
+                    autoComplete="off"
+                  />
+                </label>
 
-                {nasPreview.updatedAt && (
+                <p
+                  style={{
+                    marginTop: '8px',
+                    color: '#706a62',
+                    fontSize: '0.9rem',
+                    lineHeight: 1.4,
+                  }}
+                >
+                  Der Schlüssel wird nur in diesem Browser auf diesem Gerät gespeichert
+                  und nicht in GitHub eingebaut.
+                </p>
+
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={saveNasSettings}
+                  style={{
+                    width: '100%',
+                    marginTop: '14px',
+                  }}
+                >
+                  💾 Einstellungen speichern
+                </button>
+
+                <button
+                  className="save-recipe-button"
+                  type="button"
+                  onClick={testNasConnection}
+                  disabled={nasTesting}
+                >
+                  {nasTesting
+                    ? 'Verbindung wird geprüft …'
+                    : '🔌 NAS-Verbindung testen'}
+                </button>
+
+                <button
+                  className="save-recipe-button"
+                  type="button"
+                  onClick={uploadCurrentDataToNas}
+                  disabled={
+                    nasUploading ||
+                    nasTesting ||
+                    nasDataExists
+                  }
+                  style={{
+                    marginTop: '10px',
+                  }}
+                >
+                  {nasUploading
+                    ? 'Daten werden übertragen …'
+                    : nasDataExists
+                      ? '✓ NAS enthält bereits Kochwerk-Daten'
+                      : '⬆️ Ersten Stand auf NAS übertragen'}
+                </button>
+
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={checkNasDataWithoutImport}
+                  disabled={
+                    nasPullChecking ||
+                    nasTesting ||
+                    nasUploading
+                  }
+                  style={{
+                    width: '100%',
+                    marginTop: '10px',
+                  }}
+                >
+                  {nasPullChecking
+                    ? 'NAS-Stand wird gelesen …'
+                    : '🔎 NAS-Stand prüfen'}
+                </button>
+
+                {nasPreview && (
                   <div
                     style={{
-                      marginTop: '6px',
-                      color: '#706a62',
-                      fontSize: '0.9rem',
+                      marginTop: '14px',
+                      padding: '14px',
+                      border:
+                        '1px solid #e5ded5',
+                      borderRadius: '12px',
+                      background: '#faf8f5',
+                      lineHeight: 1.6,
                     }}
                   >
-                    NAS zuletzt gespeichert:{' '}
-                    {new Date(
-                      nasPreview.updatedAt,
-                    ).toLocaleString()}
+                    <strong>
+                      NAS-Inhalt
+                    </strong>
+
+                    <div>
+                      {nasPreview.recipeCount}{' '}
+                      Rezepte
+                    </div>
+
+                    <div>
+                      {nasPreview.categoryCount}{' '}
+                      Kategorien
+                    </div>
+
+                    <div>
+                      {nasPreview.collectionCount}{' '}
+                      Sammlungen
+                    </div>
+
+                    {nasPreview.updatedAt && (
+                      <div
+                        style={{
+                          marginTop: '6px',
+                          color: '#706a62',
+                          fontSize: '0.9rem',
+                        }}
+                      >
+                        NAS zuletzt gespeichert:{' '}
+                        {new Date(
+                          nasPreview.updatedAt,
+                        ).toLocaleString()}
+                      </div>
+                    )}
+
+                    <div
+                      style={{
+                        marginTop: '8px',
+                        fontWeight: 700,
+                      }}
+                    >
+                      Nur geprüft – lokal nichts verändert.
+                    </div>
                   </div>
                 )}
 
-                <div
-                  style={{
-                    marginTop: '8px',
-                    fontWeight: 700,
-                  }}
-                >
-                  Nur geprüft – lokal nichts verändert.
-                </div>
+                {nasPulledData && (
+                  <button
+                    className="save-recipe-button"
+                    type="button"
+                    onClick={
+                      applyNasDataToThisDevice
+                    }
+                    disabled={
+                      nasApplying ||
+                      nasPullChecking ||
+                      nasTesting ||
+                      nasUploading
+                    }
+                    style={{
+                      marginTop: '12px',
+                    }}
+                  >
+                    {nasApplying
+                      ? 'NAS-Stand wird übernommen …'
+                      : '⬇️ NAS-Stand auf dieses Gerät übernehmen'}
+                  </button>
+                )}
               </div>
-            )}
-
-            {nasPulledData && (
-              <button
-                className="save-recipe-button"
-                type="button"
-                onClick={
-                  applyNasDataToThisDevice
-                }
-                disabled={
-                  nasApplying ||
-                  nasPullChecking ||
-                  nasTesting ||
-                  nasUploading
-                }
-                style={{
-                  marginTop: '12px',
-                }}
-              >
-                {nasApplying
-                  ? 'NAS-Stand wird übernommen …'
-                  : '⬇️ NAS-Stand auf dieses Gerät übernehmen'}
-              </button>
-            )}
+            </details>
 
             {nasMessage && (
               <p

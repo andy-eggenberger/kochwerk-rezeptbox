@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.3.0'
+const APP_VERSION = '0.3.1'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -134,6 +134,10 @@ function App() {
   const [nasKey, setNasKey] = useState('')
   const [nasMessage, setNasMessage] = useState('')
   const [nasTesting, setNasTesting] = useState(false)
+  const [nasUploading, setNasUploading] = useState(false)
+  const [nasDataExists, setNasDataExists] = useState(false)
+  const [nasRevision, setNasRevision] =
+    useState<string | null>(null)
 
   const [showNewCategory, setShowNewCategory] =
     useState(false)
@@ -621,6 +625,13 @@ function App() {
           cleanKey,
         )
 
+        setNasDataExists(
+          Boolean(result.dataExists),
+        )
+        setNasRevision(
+          result.revision ?? null,
+        )
+
         setNasMessage(
           `✓ NAS-Verbindung funktioniert. ${result.service ?? 'Kochwerk NAS-API'} · API ${result.apiVersion ?? '?'} · Daten auf NAS: ${result.dataExists ? 'vorhanden' : 'noch keine'}.`,
         )
@@ -640,6 +651,134 @@ function App() {
       )
     } finally {
       setNasTesting(false)
+    }
+  }
+
+  async function uploadCurrentDataToNas() {
+    const cleanUrl = nasUrl.trim()
+    const cleanKey = nasKey.trim()
+
+    if (!cleanUrl || !cleanKey) {
+      setNasMessage(
+        'Bitte zuerst NAS-Adresse und Kochwerk-Schlüssel eintragen und die Verbindung testen.',
+      )
+      return
+    }
+
+    if (nasDataExists) {
+      setNasMessage(
+        'Auf dem NAS sind bereits Kochwerk-Daten vorhanden. Der Erst-Upload wird deshalb nicht ausgeführt. Zuerst müssen wir den Abgleich einrichten.',
+      )
+      return
+    }
+
+    const confirmed =
+      window.confirm(
+        `Ersten Kochwerk-Stand auf den NAS übertragen?\n\n` +
+          `${recipes.length} Rezepte\n` +
+          `${categories.length} Kategorien\n` +
+          `${collections.length} Sammlungen\n\n` +
+          `Auf dem NAS sind derzeit noch keine Kochwerk-Daten vorhanden.`,
+      )
+
+    if (!confirmed) {
+      setNasMessage(
+        'Erst-Upload abgebrochen.',
+      )
+      return
+    }
+
+    setNasUploading(true)
+    setNasMessage(
+      'Kochwerk-Daten werden auf den NAS übertragen …',
+    )
+
+    try {
+      const payload: BackupData = {
+        app: 'Kochwerk',
+        backupVersion: 1,
+        createdAt: new Date().toISOString(),
+        recipes,
+        categories,
+        collections,
+      }
+
+      const separator =
+        cleanUrl.includes('?')
+          ? '&'
+          : '?'
+
+      const response =
+        await fetch(
+          `${cleanUrl}${separator}action=push`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type':
+                'application/json',
+              'X-Kochwerk-Key':
+                cleanKey,
+            },
+            body: JSON.stringify({
+              data: payload,
+              baseRevision:
+                nasRevision,
+              force: false,
+            }),
+          },
+        )
+
+      const result =
+        await response.json() as {
+          ok?: boolean
+          revision?: string | null
+          updatedAt?: string | null
+          recipeCount?: number
+          categoryCount?: number
+          collectionCount?: number
+          error?: string
+          currentRevision?: string
+        }
+
+      if (
+        response.ok &&
+        result.ok
+      ) {
+        setNasDataExists(true)
+        setNasRevision(
+          result.revision ?? null,
+        )
+
+        setNasMessage(
+          `✓ Erst-Upload erfolgreich. NAS enthält jetzt ${result.recipeCount ?? recipes.length} Rezepte, ${result.categoryCount ?? categories.length} Kategorien und ${result.collectionCount ?? collections.length} Sammlungen.`,
+        )
+      } else if (
+        response.status === 409
+      ) {
+        setNasDataExists(true)
+        setNasRevision(
+          result.currentRevision ?? null,
+        )
+
+        setNasMessage(
+          'Der NAS hat inzwischen bereits einen anderen Stand. Es wurde nichts überschrieben. Bitte zuerst den NAS-Stand neu prüfen.',
+        )
+      } else {
+        setNasMessage(
+          `Upload fehlgeschlagen: ${result.error ?? `HTTP ${response.status}`}`,
+        )
+      }
+    } catch (error) {
+      console.error(
+        'NAS-Erst-Upload fehlgeschlagen:',
+        error,
+      )
+
+      setNasMessage(
+        'Die Kochwerk-Daten konnten nicht auf den NAS übertragen werden.',
+      )
+    } finally {
+      setNasUploading(false)
     }
   }
 
@@ -4254,6 +4393,26 @@ function App() {
               {nasTesting
                 ? 'Verbindung wird geprüft …'
                 : '🔌 NAS-Verbindung testen'}
+            </button>
+
+            <button
+              className="save-recipe-button"
+              type="button"
+              onClick={uploadCurrentDataToNas}
+              disabled={
+                nasUploading ||
+                nasTesting ||
+                nasDataExists
+              }
+              style={{
+                marginTop: '10px',
+              }}
+            >
+              {nasUploading
+                ? 'Daten werden übertragen …'
+                : nasDataExists
+                  ? '✓ NAS enthält bereits Kochwerk-Daten'
+                  : '⬆️ Ersten Stand auf NAS übertragen'}
             </button>
 
             {nasMessage && (

@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.2.2'
+const APP_VERSION = '0.3.0'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -126,6 +126,14 @@ function App() {
   const [showNewRecipe, setShowNewRecipe] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showBackup, setShowBackup] = useState(false)
+  const [showNasSync, setShowNasSync] = useState(false)
+
+  const [nasUrl, setNasUrl] = useState(
+    'https://andys-rezeptbox.synology.me/kochwerk.php',
+  )
+  const [nasKey, setNasKey] = useState('')
+  const [nasMessage, setNasMessage] = useState('')
+  const [nasTesting, setNasTesting] = useState(false)
 
   const [showNewCategory, setShowNewCategory] =
     useState(false)
@@ -289,6 +297,24 @@ function App() {
 
   useEffect(() => {
     loadAllData()
+
+    const storedNasUrl =
+      window.localStorage.getItem(
+        'kochwerkNasUrl',
+      )
+
+    const storedNasKey =
+      window.localStorage.getItem(
+        'kochwerkNasKey',
+      )
+
+    if (storedNasUrl) {
+      setNasUrl(storedNasUrl)
+    }
+
+    if (storedNasKey) {
+      setNasKey(storedNasKey)
+    }
 
     const currentUrl = new URL(window.location.href)
     const sharedImportUrl = currentUrl.searchParams.get('import')
@@ -500,6 +526,121 @@ function App() {
     setSearchCollectionId('all')
     setSearchFavoritesOnly(false)
     setSearchSort('az')
+  }
+
+  function saveNasSettings() {
+    const cleanUrl = nasUrl.trim()
+    const cleanKey = nasKey.trim()
+
+    if (!cleanUrl) {
+      setNasMessage(
+        'Bitte die NAS-API-Adresse eingeben.',
+      )
+      return
+    }
+
+    if (!cleanKey) {
+      setNasMessage(
+        'Bitte den Kochwerk-Schlüssel eingeben.',
+      )
+      return
+    }
+
+    window.localStorage.setItem(
+      'kochwerkNasUrl',
+      cleanUrl,
+    )
+
+    window.localStorage.setItem(
+      'kochwerkNasKey',
+      cleanKey,
+    )
+
+    setNasMessage(
+      'NAS-Einstellungen auf diesem Gerät gespeichert.',
+    )
+  }
+
+  async function testNasConnection() {
+    const cleanUrl = nasUrl.trim()
+    const cleanKey = nasKey.trim()
+
+    if (!cleanUrl || !cleanKey) {
+      setNasMessage(
+        'Bitte NAS-Adresse und Kochwerk-Schlüssel eingeben.',
+      )
+      return
+    }
+
+    setNasTesting(true)
+    setNasMessage(
+      'NAS-Verbindung wird geprüft …',
+    )
+
+    try {
+      const separator =
+        cleanUrl.includes('?')
+          ? '&'
+          : '?'
+
+      const response =
+        await fetch(
+          `${cleanUrl}${separator}action=status`,
+          {
+            method: 'GET',
+            headers: {
+              'X-Kochwerk-Key':
+                cleanKey,
+            },
+            cache: 'no-store',
+          },
+        )
+
+      const result =
+        await response.json() as {
+          ok?: boolean
+          service?: string
+          apiVersion?: number
+          dataExists?: boolean
+          revision?: string | null
+          updatedAt?: string | null
+          error?: string
+        }
+
+      if (
+        response.ok &&
+        result.ok
+      ) {
+        window.localStorage.setItem(
+          'kochwerkNasUrl',
+          cleanUrl,
+        )
+
+        window.localStorage.setItem(
+          'kochwerkNasKey',
+          cleanKey,
+        )
+
+        setNasMessage(
+          `✓ NAS-Verbindung funktioniert. ${result.service ?? 'Kochwerk NAS-API'} · API ${result.apiVersion ?? '?'} · Daten auf NAS: ${result.dataExists ? 'vorhanden' : 'noch keine'}.`,
+        )
+      } else {
+        setNasMessage(
+          `NAS-Verbindung fehlgeschlagen: ${result.error ?? `HTTP ${response.status}`}`,
+        )
+      }
+    } catch (error) {
+      console.error(
+        'NAS-Verbindungstest fehlgeschlagen:',
+        error,
+      )
+
+      setNasMessage(
+        'NAS konnte nicht erreicht werden. Bitte Adresse, Schlüssel und Internetverbindung prüfen.',
+      )
+    } finally {
+      setNasTesting(false)
+    }
   }
 
   function createBackup() {
@@ -3277,6 +3418,17 @@ function App() {
               >
                 💾 Sicherung
               </button>
+
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => {
+                  setNasMessage('')
+                  setShowNasSync(true)
+                }}
+              >
+                ☁️ NAS-Sync
+              </button>
             </section>
           </>
         ) : view === 'search' ? (
@@ -3998,6 +4150,140 @@ function App() {
       <footer>
         Kochwerk · Version {APP_VERSION}
       </footer>
+
+      {showNasSync && (
+        <div
+          className="modal-backdrop"
+          onClick={() =>
+            setShowNasSync(false)
+          }
+        >
+          <div
+            className="edit-modal"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+            <button
+              className="modal-close"
+              type="button"
+              onClick={() =>
+                setShowNasSync(false)
+              }
+            >
+              ×
+            </button>
+
+            <h2>
+              ☁️ NAS-Synchronisation
+            </h2>
+
+            <p
+              style={{
+                color: '#706a62',
+                lineHeight: 1.5,
+              }}
+            >
+              Zuerst prüfen wir nur die Verbindung zum NAS.
+              Es werden dabei noch keine Rezepte übertragen oder verändert.
+            </p>
+
+            <label>
+              NAS-API-Adresse
+
+              <input
+                type="url"
+                value={nasUrl}
+                onChange={(event) => {
+                  setNasUrl(
+                    event.target.value,
+                  )
+                  setNasMessage('')
+                }}
+                placeholder="https://.../kochwerk.php"
+              />
+            </label>
+
+            <label>
+              Kochwerk-Schlüssel
+
+              <input
+                type="password"
+                value={nasKey}
+                onChange={(event) => {
+                  setNasKey(
+                    event.target.value,
+                  )
+                  setNasMessage('')
+                }}
+                placeholder="Schlüssel aus kochwerk-config.php"
+                autoComplete="off"
+              />
+            </label>
+
+            <p
+              style={{
+                marginTop: '8px',
+                color: '#706a62',
+                fontSize: '0.9rem',
+                lineHeight: 1.4,
+              }}
+            >
+              Der Schlüssel wird nur in diesem Browser auf diesem Gerät gespeichert
+              und nicht in GitHub eingebaut.
+            </p>
+
+            <button
+              className="secondary"
+              type="button"
+              onClick={saveNasSettings}
+              style={{
+                width: '100%',
+                marginTop: '14px',
+              }}
+            >
+              💾 Einstellungen speichern
+            </button>
+
+            <button
+              className="save-recipe-button"
+              type="button"
+              onClick={testNasConnection}
+              disabled={nasTesting}
+            >
+              {nasTesting
+                ? 'Verbindung wird geprüft …'
+                : '🔌 NAS-Verbindung testen'}
+            </button>
+
+            {nasMessage && (
+              <p
+                className="import-message"
+                style={{
+                  marginTop: '18px',
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {nasMessage}
+              </p>
+            )}
+
+            <button
+              className="back-button"
+              type="button"
+              onClick={() =>
+                setShowNasSync(false)
+              }
+              style={{
+                width: '100%',
+                marginTop: '12px',
+              }}
+            >
+              × Schließen
+            </button>
+          </div>
+        </div>
+      )}
 
       {showBackup && (
         <div

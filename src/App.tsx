@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.3.3'
+const APP_VERSION = '0.4.0'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -148,6 +148,12 @@ function App() {
   const [nasPulledData, setNasPulledData] =
     useState<BackupData | null>(null)
   const [nasApplying, setNasApplying] = useState(false)
+
+  const [nasSyncStatus, setNasSyncStatus] = useState<
+    'off' | 'syncing' | 'synced' | 'conflict' | 'error'
+  >('off')
+  const [nasLastSyncAt, setNasLastSyncAt] =
+    useState<string | null>(null)
 
   const [showNewCategory, setShowNewCategory] =
     useState(false)
@@ -310,45 +316,147 @@ function App() {
   >('idle')
 
   useEffect(() => {
-    loadAllData()
+    void (async () => {
+      await loadAllData()
 
-    const storedNasUrl =
-      window.localStorage.getItem(
-        'kochwerkNasUrl',
+      const storedNasUrl =
+        window.localStorage.getItem(
+          'kochwerkNasUrl',
+        )
+
+      const storedNasKey =
+        window.localStorage.getItem(
+          'kochwerkNasKey',
+        )
+
+      if (storedNasUrl) {
+        setNasUrl(storedNasUrl)
+      }
+
+      if (storedNasKey) {
+        setNasKey(storedNasKey)
+      }
+
+      const storedLastSyncAt =
+        window.localStorage.getItem(
+          'kochwerkNasLastSyncAt',
+        )
+
+      if (storedLastSyncAt) {
+        setNasLastSyncAt(
+          storedLastSyncAt,
+        )
+      }
+
+      if (
+        storedNasUrl &&
+        storedNasKey
+      ) {
+        await autoSyncWithNas(
+          storedNasUrl,
+          storedNasKey,
+          true,
+        )
+      }
+
+      const currentUrl =
+        new URL(
+          window.location.href,
+        )
+
+      const sharedImportUrl =
+        currentUrl.searchParams.get(
+          'import',
+        )
+
+      if (sharedImportUrl) {
+        setImportUrl(
+          sharedImportUrl,
+        )
+        setImportMessage(
+          'Link aus dem Teilen-Menü übernommen.',
+        )
+        setRecipePreview(null)
+        setImportCategoryIds([])
+        setImportCollectionIds([])
+        setImportFavorite(false)
+        setSaveStatus('idle')
+        setShowImport(true)
+
+        currentUrl.searchParams.delete(
+          'import',
+        )
+
+        window.history.replaceState(
+          {},
+          '',
+          `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
+        )
+      }
+    })()
+
+    const runStoredNasSync =
+      () => {
+        const storedUrl =
+          window.localStorage.getItem(
+            'kochwerkNasUrl',
+          )
+        const storedKey =
+          window.localStorage.getItem(
+            'kochwerkNasKey',
+          )
+
+        if (
+          storedUrl &&
+          storedKey
+        ) {
+          void autoSyncWithNas(
+            storedUrl,
+            storedKey,
+            false,
+          )
+        }
+      }
+
+    const intervalId =
+      window.setInterval(
+        runStoredNasSync,
+        60000,
       )
 
-    const storedNasKey =
-      window.localStorage.getItem(
-        'kochwerkNasKey',
+    const handleFocus =
+      () => runStoredNasSync()
+
+    const handleVisibility =
+      () => {
+        if (
+          document.visibilityState ===
+          'visible'
+        ) {
+          runStoredNasSync()
+        }
+      }
+
+    window.addEventListener(
+      'focus',
+      handleFocus,
+    )
+    document.addEventListener(
+      'visibilitychange',
+      handleVisibility,
+    )
+
+    return () => {
+      window.clearInterval(
+        intervalId,
       )
-
-    if (storedNasUrl) {
-      setNasUrl(storedNasUrl)
-    }
-
-    if (storedNasKey) {
-      setNasKey(storedNasKey)
-    }
-
-    const currentUrl = new URL(window.location.href)
-    const sharedImportUrl = currentUrl.searchParams.get('import')
-
-    if (sharedImportUrl) {
-      setImportUrl(sharedImportUrl)
-      setImportMessage('Link aus dem Teilen-Menü übernommen.')
-      setRecipePreview(null)
-      setImportCategoryIds([])
-      setImportCollectionIds([])
-      setImportFavorite(false)
-      setSaveStatus('idle')
-      setShowImport(true)
-
-      currentUrl.searchParams.delete('import')
-
-      window.history.replaceState(
-        {},
-        '',
-        `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
+      window.removeEventListener(
+        'focus',
+        handleFocus,
+      )
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibility,
       )
     }
   }, [])
@@ -540,6 +648,538 @@ function App() {
     setSearchCollectionId('all')
     setSearchFavoritesOnly(false)
     setSearchSort('az')
+  }
+
+  async function readLocalSnapshot(): Promise<BackupData> {
+    const [
+      localRecipes,
+      localCategories,
+      localCollections,
+    ] = await Promise.all([
+      db.recipes.toArray(),
+      db.categories.toArray(),
+      db.collections.toArray(),
+    ])
+
+    return {
+      app: 'Kochwerk',
+      backupVersion: 1,
+      createdAt:
+        new Date().toISOString(),
+      recipes: localRecipes,
+      categories: localCategories,
+      collections: localCollections,
+    }
+  }
+
+  function canonicalSnapshot(
+    data: BackupData,
+  ) {
+    const recipesSorted =
+      [...data.recipes].sort(
+        (a, b) =>
+          Number(a.id ?? 0) -
+          Number(b.id ?? 0),
+      )
+
+    const categoriesSorted =
+      [...data.categories].sort(
+        (a, b) =>
+          Number(a.id ?? 0) -
+          Number(b.id ?? 0),
+      )
+
+    const collectionsSorted =
+      [...data.collections].sort(
+        (a, b) =>
+          Number(a.id ?? 0) -
+          Number(b.id ?? 0),
+      )
+
+    return JSON.stringify({
+      app: 'Kochwerk',
+      backupVersion: 1,
+      recipes: recipesSorted,
+      categories: categoriesSorted,
+      collections: collectionsSorted,
+    })
+  }
+
+  async function hashSnapshot(
+    data: BackupData,
+  ) {
+    const encoded =
+      new TextEncoder().encode(
+        canonicalSnapshot(data),
+      )
+
+    const digest =
+      await crypto.subtle.digest(
+        'SHA-256',
+        encoded,
+      )
+
+    return Array.from(
+      new Uint8Array(digest),
+    )
+      .map((value) =>
+        value
+          .toString(16)
+          .padStart(2, '0'),
+      )
+      .join('')
+  }
+
+  function saveSyncBaseline(
+    revisionValue: string | null,
+    localHash: string,
+  ) {
+    if (revisionValue) {
+      window.localStorage.setItem(
+        'kochwerkNasLastRevision',
+        revisionValue,
+      )
+    } else {
+      window.localStorage.removeItem(
+        'kochwerkNasLastRevision',
+      )
+    }
+
+    window.localStorage.setItem(
+      'kochwerkNasLastLocalHash',
+      localHash,
+    )
+
+    const now =
+      new Date().toISOString()
+
+    window.localStorage.setItem(
+      'kochwerkNasLastSyncAt',
+      now,
+    )
+
+    setNasLastSyncAt(now)
+  }
+
+  async function replaceLocalWithNasData(
+    data: BackupData,
+  ) {
+    await db.transaction(
+      'rw',
+      db.recipes,
+      db.categories,
+      db.collections,
+      async () => {
+        await db.recipes.clear()
+        await db.categories.clear()
+        await db.collections.clear()
+
+        if (data.recipes.length) {
+          await db.recipes.bulkAdd(
+            data.recipes,
+          )
+        }
+
+        if (
+          data.categories.length
+        ) {
+          await db.categories.bulkAdd(
+            data.categories,
+          )
+        }
+
+        if (
+          data.collections.length
+        ) {
+          await db.collections.bulkAdd(
+            data.collections,
+          )
+        }
+      },
+    )
+
+    await loadAllData()
+  }
+
+  async function autoSyncWithNas(
+    urlValue: string,
+    keyValue: string,
+    initialRun: boolean,
+  ) {
+    const cleanUrl =
+      urlValue.trim()
+    const cleanKey =
+      keyValue.trim()
+
+    if (
+      !cleanUrl ||
+      !cleanKey
+    ) {
+      setNasSyncStatus('off')
+      return
+    }
+
+    if (
+      nasSyncStatus ===
+      'syncing'
+    ) {
+      return
+    }
+
+    setNasSyncStatus('syncing')
+
+    try {
+      const separator =
+        cleanUrl.includes('?')
+          ? '&'
+          : '?'
+
+      const pullResponse =
+        await fetch(
+          `${cleanUrl}${separator}action=pull`,
+          {
+            method: 'GET',
+            headers: {
+              'X-Kochwerk-Key':
+                cleanKey,
+            },
+            cache: 'no-store',
+          },
+        )
+
+      const pullResult =
+        await pullResponse.json() as {
+          ok?: boolean
+          exists?: boolean
+          revision?: string | null
+          updatedAt?: string | null
+          data?: BackupData | null
+          error?: string
+        }
+
+      if (
+        !pullResponse.ok ||
+        !pullResult.ok
+      ) {
+        throw new Error(
+          pullResult.error ??
+            `HTTP ${pullResponse.status}`,
+        )
+      }
+
+      const localData =
+        await readLocalSnapshot()
+      const localHash =
+        await hashSnapshot(
+          localData,
+        )
+
+      const lastRevision =
+        window.localStorage.getItem(
+          'kochwerkNasLastRevision',
+        )
+      const lastLocalHash =
+        window.localStorage.getItem(
+          'kochwerkNasLastLocalHash',
+        )
+
+      if (
+        !pullResult.exists ||
+        !pullResult.data
+      ) {
+        if (
+          localData.recipes.length === 0 &&
+          localData.categories.length === 0 &&
+          localData.collections.length === 0
+        ) {
+          saveSyncBaseline(
+            null,
+            localHash,
+          )
+          setNasSyncStatus(
+            'synced',
+          )
+          return
+        }
+
+        const pushResponse =
+          await fetch(
+            `${cleanUrl}${separator}action=push`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type':
+                  'application/json',
+                'X-Kochwerk-Key':
+                  cleanKey,
+              },
+              body: JSON.stringify({
+                data: localData,
+                baseRevision: null,
+                force: false,
+              }),
+            },
+          )
+
+        const pushResult =
+          await pushResponse.json() as {
+            ok?: boolean
+            revision?: string | null
+            error?: string
+          }
+
+        if (
+          !pushResponse.ok ||
+          !pushResult.ok
+        ) {
+          throw new Error(
+            pushResult.error ??
+              `HTTP ${pushResponse.status}`,
+          )
+        }
+
+        saveSyncBaseline(
+          pushResult.revision ?? null,
+          localHash,
+        )
+        setNasRevision(
+          pushResult.revision ??
+            null,
+        )
+        setNasDataExists(true)
+        setNasSyncStatus(
+          'synced',
+        )
+        return
+      }
+
+      const nasData: BackupData = {
+        app: 'Kochwerk',
+        backupVersion: 1,
+        createdAt:
+          pullResult.updatedAt ??
+          new Date().toISOString(),
+        recipes:
+          pullResult.data.recipes,
+        categories:
+          pullResult.data.categories,
+        collections:
+          pullResult.data.collections,
+      }
+
+      const nasHash =
+        await hashSnapshot(
+          nasData,
+        )
+
+      const currentRevision =
+        pullResult.revision ?? null
+
+      setNasRevision(
+        currentRevision,
+      )
+      setNasDataExists(true)
+
+      if (
+        !lastRevision ||
+        !lastLocalHash
+      ) {
+        if (
+          localHash === nasHash
+        ) {
+          saveSyncBaseline(
+            currentRevision,
+            localHash,
+          )
+          setNasSyncStatus(
+            'synced',
+          )
+
+          if (initialRun) {
+            setNasMessage(
+              '✓ Automatische NAS-Synchronisation eingerichtet.',
+            )
+          }
+        } else {
+          setNasSyncStatus(
+            'conflict',
+          )
+          setNasMessage(
+            '⚠️ Lokaler Stand und NAS unterscheiden sich. Automatisch wurde nichts verändert. Bitte NAS-Sync öffnen und den gewünschten Stand prüfen.',
+          )
+        }
+
+        return
+      }
+
+      const localChanged =
+        localHash !==
+        lastLocalHash
+      const nasChanged =
+        currentRevision !==
+        lastRevision
+
+      if (
+        !localChanged &&
+        !nasChanged
+      ) {
+        saveSyncBaseline(
+          currentRevision,
+          localHash,
+        )
+        setNasSyncStatus(
+          'synced',
+        )
+        return
+      }
+
+      if (
+        localChanged &&
+        !nasChanged
+      ) {
+        const pushResponse =
+          await fetch(
+            `${cleanUrl}${separator}action=push`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type':
+                  'application/json',
+                'X-Kochwerk-Key':
+                  cleanKey,
+              },
+              body: JSON.stringify({
+                data: localData,
+                baseRevision:
+                  currentRevision,
+                force: false,
+              }),
+            },
+          )
+
+        const pushResult =
+          await pushResponse.json() as {
+            ok?: boolean
+            revision?: string | null
+            error?: string
+            currentRevision?: string
+          }
+
+        if (
+          pushResponse.status ===
+          409
+        ) {
+          setNasSyncStatus(
+            'conflict',
+          )
+          setNasMessage(
+            '⚠️ Während der Synchronisation wurde der NAS-Stand verändert. Nichts wurde überschrieben.',
+          )
+          return
+        }
+
+        if (
+          !pushResponse.ok ||
+          !pushResult.ok
+        ) {
+          throw new Error(
+            pushResult.error ??
+              `HTTP ${pushResponse.status}`,
+          )
+        }
+
+        saveSyncBaseline(
+          pushResult.revision ?? null,
+          localHash,
+        )
+        setNasRevision(
+          pushResult.revision ??
+            null,
+        )
+        setNasSyncStatus(
+          'synced',
+        )
+        return
+      }
+
+      if (
+        !localChanged &&
+        nasChanged
+      ) {
+        await replaceLocalWithNasData(
+          nasData,
+        )
+
+        saveSyncBaseline(
+          currentRevision,
+          nasHash,
+        )
+        setNasSyncStatus(
+          'synced',
+        )
+        return
+      }
+
+      if (
+        localHash === nasHash
+      ) {
+        saveSyncBaseline(
+          currentRevision,
+          localHash,
+        )
+        setNasSyncStatus(
+          'synced',
+        )
+        return
+      }
+
+      setNasSyncStatus(
+        'conflict',
+      )
+      setNasMessage(
+        '⚠️ Dieses Gerät und der NAS wurden beide verändert. Zur Sicherheit wurde nichts überschrieben. Bitte NAS-Sync öffnen.',
+      )
+    } catch (error) {
+      console.error(
+        'Automatische NAS-Synchronisation fehlgeschlagen:',
+        error,
+      )
+      setNasSyncStatus(
+        'error',
+      )
+    }
+  }
+
+  async function runNasSyncNow() {
+    const cleanUrl =
+      nasUrl.trim()
+    const cleanKey =
+      nasKey.trim()
+
+    if (
+      !cleanUrl ||
+      !cleanKey
+    ) {
+      setNasMessage(
+        'Bitte zuerst NAS-Adresse und Kochwerk-Schlüssel speichern.',
+      )
+      return
+    }
+
+    await autoSyncWithNas(
+      cleanUrl,
+      cleanKey,
+      false,
+    )
+
+    if (
+      nasSyncStatus !==
+      'conflict'
+    ) {
+      setNasMessage(
+        'Automatische Synchronisation wurde geprüft.',
+      )
+    }
   }
 
   function saveNasSettings() {
@@ -757,6 +1397,21 @@ function App() {
         setNasDataExists(true)
         setNasRevision(
           result.revision ?? null,
+        )
+
+        const uploadedSnapshot =
+          await readLocalSnapshot()
+        const uploadedHash =
+          await hashSnapshot(
+            uploadedSnapshot,
+          )
+
+        saveSyncBaseline(
+          result.revision ?? null,
+          uploadedHash,
+        )
+        setNasSyncStatus(
+          'synced',
         )
 
         setNasMessage(
@@ -1045,6 +1700,19 @@ function App() {
       )
 
       await loadAllData()
+
+      const appliedHash =
+        await hashSnapshot(
+          nasPulledData,
+        )
+
+      saveSyncBaseline(
+        nasRevision,
+        appliedHash,
+      )
+      setNasSyncStatus(
+        'synced',
+      )
 
       setNasMessage(
         `✓ NAS-Stand übernommen. Dieses Gerät enthält jetzt ${nasPulledData.recipes.length} Rezepte, ${nasPulledData.categories.length} Kategorien und ${nasPulledData.collections.length} Sammlungen. Vorher wurde automatisch eine lokale Sicherungsdatei erstellt.`,
@@ -3849,6 +4517,38 @@ function App() {
               >
                 ☁️ NAS-Sync
               </button>
+
+              <div
+                style={{
+                  gridColumn:
+                    '1 / -1',
+                  textAlign: 'center',
+                  fontSize: '0.82rem',
+                  color:
+                    nasSyncStatus ===
+                    'conflict'
+                      ? '#a33c31'
+                      : nasSyncStatus ===
+                          'error'
+                        ? '#a33c31'
+                        : '#5d654d',
+                  marginTop: '2px',
+                }}
+              >
+                {nasSyncStatus ===
+                'syncing'
+                  ? '☁️ Synchronisiere …'
+                  : nasSyncStatus ===
+                      'synced'
+                    ? '☁️ Synchronisiert'
+                    : nasSyncStatus ===
+                        'conflict'
+                      ? '⚠️ Sync-Konflikt – bitte NAS-Sync öffnen'
+                      : nasSyncStatus ===
+                          'error'
+                        ? '⚠️ NAS momentan nicht erreichbar'
+                        : '☁️ NAS-Sync noch nicht eingerichtet'}
+              </div>
             </section>
           </>
         ) : view === 'search' ? (
@@ -4675,6 +5375,66 @@ function App() {
                 ? 'Verbindung wird geprüft …'
                 : '🔌 NAS-Verbindung testen'}
             </button>
+
+            <button
+              className="secondary"
+              type="button"
+              onClick={runNasSyncNow}
+              disabled={
+                nasSyncStatus ===
+                'syncing'
+              }
+              style={{
+                width: '100%',
+                marginTop: '10px',
+              }}
+            >
+              {nasSyncStatus ===
+              'syncing'
+                ? '☁️ Synchronisiere …'
+                : '🔄 Jetzt synchronisieren'}
+            </button>
+
+            <div
+              style={{
+                marginTop: '10px',
+                padding: '10px 12px',
+                borderRadius: '10px',
+                background: '#faf8f5',
+                textAlign: 'center',
+                fontWeight: 700,
+              }}
+            >
+              {nasSyncStatus ===
+              'synced'
+                ? '☁️ Synchronisiert'
+                : nasSyncStatus ===
+                    'syncing'
+                  ? '☁️ Synchronisierung läuft …'
+                  : nasSyncStatus ===
+                      'conflict'
+                    ? '⚠️ Konflikt erkannt – nichts wurde überschrieben'
+                    : nasSyncStatus ===
+                        'error'
+                      ? '⚠️ NAS momentan nicht erreichbar'
+                      : '☁️ Automatischer Sync noch nicht eingerichtet'}
+
+              {nasLastSyncAt && (
+                <div
+                  style={{
+                    marginTop: '4px',
+                    fontSize: '0.82rem',
+                    fontWeight: 500,
+                    color: '#706a62',
+                  }}
+                >
+                  Zuletzt synchronisiert:{' '}
+                  {new Date(
+                    nasLastSyncAt,
+                  ).toLocaleString()}
+                </div>
+              )}
+            </div>
 
             <button
               className="save-recipe-button"

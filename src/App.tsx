@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.3.1'
+const APP_VERSION = '0.3.2'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -138,6 +138,13 @@ function App() {
   const [nasDataExists, setNasDataExists] = useState(false)
   const [nasRevision, setNasRevision] =
     useState<string | null>(null)
+  const [nasPullChecking, setNasPullChecking] = useState(false)
+  const [nasPreview, setNasPreview] = useState<{
+    recipeCount: number
+    categoryCount: number
+    collectionCount: number
+    updatedAt: string | null
+  } | null>(null)
 
   const [showNewCategory, setShowNewCategory] =
     useState(false)
@@ -779,6 +786,127 @@ function App() {
       )
     } finally {
       setNasUploading(false)
+    }
+  }
+
+  async function checkNasDataWithoutImport() {
+    const cleanUrl = nasUrl.trim()
+    const cleanKey = nasKey.trim()
+
+    if (!cleanUrl || !cleanKey) {
+      setNasMessage(
+        'Bitte zuerst NAS-Adresse und Kochwerk-Schlüssel eintragen.',
+      )
+      return
+    }
+
+    setNasPullChecking(true)
+    setNasPreview(null)
+    setNasMessage(
+      'NAS-Stand wird gelesen …',
+    )
+
+    try {
+      const separator =
+        cleanUrl.includes('?')
+          ? '&'
+          : '?'
+
+      const response =
+        await fetch(
+          `${cleanUrl}${separator}action=pull`,
+          {
+            method: 'GET',
+            headers: {
+              'X-Kochwerk-Key':
+                cleanKey,
+            },
+            cache: 'no-store',
+          },
+        )
+
+      const result =
+        await response.json() as {
+          ok?: boolean
+          exists?: boolean
+          revision?: string | null
+          updatedAt?: string | null
+          data?: {
+            recipes?: unknown[]
+            categories?: unknown[]
+            collections?: unknown[]
+          } | null
+          error?: string
+        }
+
+      if (
+        response.ok &&
+        result.ok
+      ) {
+        setNasRevision(
+          result.revision ?? null,
+        )
+        setNasDataExists(
+          Boolean(result.exists),
+        )
+
+        if (
+          result.exists &&
+          result.data
+        ) {
+          const recipeCount =
+            Array.isArray(
+              result.data.recipes,
+            )
+              ? result.data.recipes.length
+              : 0
+
+          const categoryCount =
+            Array.isArray(
+              result.data.categories,
+            )
+              ? result.data.categories.length
+              : 0
+
+          const collectionCount =
+            Array.isArray(
+              result.data.collections,
+            )
+              ? result.data.collections.length
+              : 0
+
+          setNasPreview({
+            recipeCount,
+            categoryCount,
+            collectionCount,
+            updatedAt:
+              result.updatedAt ?? null,
+          })
+
+          setNasMessage(
+            '✓ NAS-Stand erfolgreich gelesen. Lokal wurde nichts verändert.',
+          )
+        } else {
+          setNasMessage(
+            'Auf dem NAS sind noch keine Kochwerk-Daten vorhanden.',
+          )
+        }
+      } else {
+        setNasMessage(
+          `NAS-Stand konnte nicht gelesen werden: ${result.error ?? `HTTP ${response.status}`}`,
+        )
+      }
+    } catch (error) {
+      console.error(
+        'NAS-Stand prüfen fehlgeschlagen:',
+        error,
+      )
+
+      setNasMessage(
+        'NAS-Stand konnte nicht gelesen werden. Bitte Verbindung prüfen.',
+      )
+    } finally {
+      setNasPullChecking(false)
     }
   }
 
@@ -4414,6 +4542,82 @@ function App() {
                   ? '✓ NAS enthält bereits Kochwerk-Daten'
                   : '⬆️ Ersten Stand auf NAS übertragen'}
             </button>
+
+            <button
+              className="secondary"
+              type="button"
+              onClick={checkNasDataWithoutImport}
+              disabled={
+                nasPullChecking ||
+                nasTesting ||
+                nasUploading
+              }
+              style={{
+                width: '100%',
+                marginTop: '10px',
+              }}
+            >
+              {nasPullChecking
+                ? 'NAS-Stand wird gelesen …'
+                : '🔎 NAS-Stand prüfen'}
+            </button>
+
+            {nasPreview && (
+              <div
+                style={{
+                  marginTop: '14px',
+                  padding: '14px',
+                  border:
+                    '1px solid #e5ded5',
+                  borderRadius: '12px',
+                  background: '#faf8f5',
+                  lineHeight: 1.6,
+                }}
+              >
+                <strong>
+                  NAS-Inhalt
+                </strong>
+
+                <div>
+                  {nasPreview.recipeCount}{' '}
+                  Rezepte
+                </div>
+
+                <div>
+                  {nasPreview.categoryCount}{' '}
+                  Kategorien
+                </div>
+
+                <div>
+                  {nasPreview.collectionCount}{' '}
+                  Sammlungen
+                </div>
+
+                {nasPreview.updatedAt && (
+                  <div
+                    style={{
+                      marginTop: '6px',
+                      color: '#706a62',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    NAS zuletzt gespeichert:{' '}
+                    {new Date(
+                      nasPreview.updatedAt,
+                    ).toLocaleString()}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    marginTop: '8px',
+                    fontWeight: 700,
+                  }}
+                >
+                  Nur geprüft – lokal nichts verändert.
+                </div>
+              </div>
+            )}
 
             {nasMessage && (
               <p

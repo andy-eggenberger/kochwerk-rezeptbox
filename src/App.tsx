@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.3.2'
+const APP_VERSION = '0.3.3'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -145,6 +145,9 @@ function App() {
     collectionCount: number
     updatedAt: string | null
   } | null>(null)
+  const [nasPulledData, setNasPulledData] =
+    useState<BackupData | null>(null)
+  const [nasApplying, setNasApplying] = useState(false)
 
   const [showNewCategory, setShowNewCategory] =
     useState(false)
@@ -883,10 +886,26 @@ function App() {
               result.updatedAt ?? null,
           })
 
+          setNasPulledData({
+            app: 'Kochwerk',
+            backupVersion: 1,
+            createdAt:
+              result.updatedAt ??
+              new Date().toISOString(),
+            recipes:
+              result.data.recipes as Recipe[],
+            categories:
+              result.data.categories as Category[],
+            collections:
+              result.data.collections as Collection[],
+          })
+
           setNasMessage(
             '✓ NAS-Stand erfolgreich gelesen. Lokal wurde nichts verändert.',
           )
         } else {
+          setNasPulledData(null)
+          setNasPreview(null)
           setNasMessage(
             'Auf dem NAS sind noch keine Kochwerk-Daten vorhanden.',
           )
@@ -907,6 +926,140 @@ function App() {
       )
     } finally {
       setNasPullChecking(false)
+    }
+  }
+
+  async function applyNasDataToThisDevice() {
+    if (!nasPulledData) {
+      setNasMessage(
+        'Bitte zuerst den NAS-Stand prüfen.',
+      )
+      return
+    }
+
+    const confirmed =
+      window.confirm(
+        `NAS-Stand auf dieses Gerät übernehmen?\n\n` +
+          `${nasPulledData.recipes.length} Rezepte\n` +
+          `${nasPulledData.categories.length} Kategorien\n` +
+          `${nasPulledData.collections.length} Sammlungen\n\n` +
+          `Der aktuelle lokale Kochwerk-Stand auf diesem Gerät wird vorher automatisch als Sicherungsdatei heruntergeladen und danach durch den NAS-Stand ersetzt.`,
+      )
+
+    if (!confirmed) {
+      setNasMessage(
+        'Übernahme des NAS-Stands abgebrochen.',
+      )
+      return
+    }
+
+    setNasApplying(true)
+    setNasMessage(
+      'Lokale Sicherung wird erstellt und NAS-Stand übernommen …',
+    )
+
+    try {
+      const localBackup: BackupData = {
+        app: 'Kochwerk',
+        backupVersion: 1,
+        createdAt:
+          new Date().toISOString(),
+        recipes,
+        categories,
+        collections,
+      }
+
+      const backupBlob =
+        new Blob(
+          [
+            JSON.stringify(
+              localBackup,
+              null,
+              2,
+            ),
+          ],
+          {
+            type: 'application/json',
+          },
+        )
+
+      const backupUrl =
+        URL.createObjectURL(
+          backupBlob,
+        )
+
+      const backupLink =
+        document.createElement('a')
+
+      backupLink.href =
+        backupUrl
+
+      backupLink.download =
+        `kochwerk-vor-nas-uebernahme-${new Date()
+          .toISOString()
+          .replace(/[:.]/g, '-')}.json`
+
+      document.body.appendChild(
+        backupLink,
+      )
+      backupLink.click()
+      backupLink.remove()
+      URL.revokeObjectURL(
+        backupUrl,
+      )
+
+      await db.transaction(
+        'rw',
+        db.recipes,
+        db.categories,
+        db.collections,
+        async () => {
+          await db.recipes.clear()
+          await db.categories.clear()
+          await db.collections.clear()
+
+          if (
+            nasPulledData.recipes.length
+          ) {
+            await db.recipes.bulkAdd(
+              nasPulledData.recipes,
+            )
+          }
+
+          if (
+            nasPulledData.categories.length
+          ) {
+            await db.categories.bulkAdd(
+              nasPulledData.categories,
+            )
+          }
+
+          if (
+            nasPulledData.collections.length
+          ) {
+            await db.collections.bulkAdd(
+              nasPulledData.collections,
+            )
+          }
+        },
+      )
+
+      await loadAllData()
+
+      setNasMessage(
+        `✓ NAS-Stand übernommen. Dieses Gerät enthält jetzt ${nasPulledData.recipes.length} Rezepte, ${nasPulledData.categories.length} Kategorien und ${nasPulledData.collections.length} Sammlungen. Vorher wurde automatisch eine lokale Sicherungsdatei erstellt.`,
+      )
+    } catch (error) {
+      console.error(
+        'NAS-Stand übernehmen fehlgeschlagen:',
+        error,
+      )
+
+      setNasMessage(
+        'NAS-Stand konnte nicht übernommen werden. Der bisherige lokale Stand wurde nicht absichtlich gelöscht; bitte noch nichts weiter ändern und den Fehler prüfen.',
+      )
+    } finally {
+      setNasApplying(false)
     }
   }
 
@@ -4617,6 +4770,29 @@ function App() {
                   Nur geprüft – lokal nichts verändert.
                 </div>
               </div>
+            )}
+
+            {nasPulledData && (
+              <button
+                className="save-recipe-button"
+                type="button"
+                onClick={
+                  applyNasDataToThisDevice
+                }
+                disabled={
+                  nasApplying ||
+                  nasPullChecking ||
+                  nasTesting ||
+                  nasUploading
+                }
+                style={{
+                  marginTop: '12px',
+                }}
+              >
+                {nasApplying
+                  ? 'NAS-Stand wird übernommen …'
+                  : '⬇️ NAS-Stand auf dieses Gerät übernehmen'}
+              </button>
             )}
 
             {nasMessage && (

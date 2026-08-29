@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.6.2'
+const APP_VERSION = '0.6.3'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -5535,9 +5535,9 @@ function App() {
                         }
                         style={{
                           width:
-                            '230px',
+                            '250px',
                           maxWidth:
-                            '230px',
+                            '250px',
                         }}
                       >
                         <button
@@ -5568,7 +5568,7 @@ function App() {
                             className="recipe-card-content"
                             style={{
                               padding:
-                                '12px 14px 10px',
+                                '14px 16px 12px',
                             }}
                           >
                             <h3>
@@ -5590,20 +5590,26 @@ function App() {
                           style={{
                             display:
                               'flex',
-                            gap: '8px',
+                            gap:
+                              '10px',
                             padding:
-                              '0 10px 12px',
+                              '0 14px 14px',
+                            flexWrap:
+                              'nowrap',
                           }}
                         >
                           <button
                             className="edit-button"
                             type="button"
                             style={{
-                              flex: 1,
+                              flex:
+                                '1 1 0',
                               minWidth:
-                                '0',
+                                '96px',
                               whiteSpace:
                                 'nowrap',
+                              padding:
+                                '10px 12px',
                             }}
                             onClick={() =>
                               openCategoryEdit(
@@ -5618,11 +5624,14 @@ function App() {
                             className="delete-button"
                             type="button"
                             style={{
-                              flex: 1,
+                              flex:
+                                '1 1 0',
                               minWidth:
-                                '0',
+                                '96px',
                               whiteSpace:
                                 'nowrap',
+                              padding:
+                                '10px 12px',
                             }}
                             onClick={() =>
                               deleteCategory(
@@ -5717,9 +5726,9 @@ function App() {
                         }
                         style={{
                           width:
-                            '230px',
+                            '250px',
                           maxWidth:
-                            '230px',
+                            '250px',
                         }}
                       >
                         <button
@@ -5749,7 +5758,7 @@ function App() {
                             className="recipe-card-content"
                             style={{
                               padding:
-                                '12px 14px 10px',
+                                '14px 16px 12px',
                             }}
                           >
                             <h3>
@@ -5801,20 +5810,26 @@ function App() {
                           style={{
                             display:
                               'flex',
-                            gap: '8px',
+                            gap:
+                              '10px',
                             padding:
-                              '0 10px 12px',
+                              '0 14px 14px',
+                            flexWrap:
+                              'nowrap',
                           }}
                         >
                           <button
                             className="edit-button"
                             type="button"
                             style={{
-                              flex: 1,
+                              flex:
+                                '1 1 0',
                               minWidth:
-                                '0',
+                                '96px',
                               whiteSpace:
                                 'nowrap',
+                              padding:
+                                '10px 12px',
                             }}
                             onClick={() =>
                               openCollectionEdit(
@@ -5829,11 +5844,14 @@ function App() {
                             className="delete-button"
                             type="button"
                             style={{
-                              flex: 1,
+                              flex:
+                                '1 1 0',
                               minWidth:
-                                '0',
+                                '96px',
                               whiteSpace:
                                 'nowrap',
+                              padding:
+                                '10px 12px',
                             }}
                             onClick={() =>
                               deleteCollection(

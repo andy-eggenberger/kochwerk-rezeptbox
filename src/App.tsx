@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.4.1'
+const APP_VERSION = '0.5.1'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -4021,8 +4021,427 @@ function App() {
         )
       })
 
+
+  function isPrintNoiseLine(
+    text: string,
+    recipeTitle: string,
+  ) {
+    const clean = text.trim()
+    const lower = clean.toLowerCase()
+    const titleLower =
+      recipeTitle.trim().toLowerCase()
+
+    if (!clean) return true
+
+    if (
+      lower === 'add comment' ||
+      lower === 'comment' ||
+      lower === 'comments'
+    ) {
+      return true
+    }
+
+    if (
+      /^\d+\s+views?$/.test(lower) ||
+      /^\d+\s+(months?|monaten?|days?|tagen?|hours?|stunden?)\s+ago$/.test(
+        lower,
+      )
+    ) {
+      return true
+    }
+
+    if (
+      /^by\s+.+/i.test(clean) &&
+      clean.length < 80
+    ) {
+      return true
+    }
+
+    if (
+      titleLower &&
+      lower === titleLower
+    ) {
+      return true
+    }
+
+    return false
+  }
+
+  function printableIngredients(
+    recipe: Recipe,
+  ) {
+    return (
+      recipe.ingredients ?? []
+    ).filter(
+      (ingredient) =>
+        !isPrintNoiseLine(
+          ingredient.name,
+          recipe.title,
+        ),
+    )
+  }
+
+  function printablePreparation(
+    recipe: Recipe,
+  ) {
+    return (
+      recipe.preparation ?? []
+    ).filter(
+      (step) =>
+        !isPrintNoiseLine(
+          step,
+          recipe.title,
+        ),
+    )
+  }
+
+  function printableNotes(
+    recipe: Recipe,
+  ) {
+    return (
+      recipe.description ?? ''
+    )
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(
+        (line) =>
+          !isPrintNoiseLine(
+            line,
+            recipe.title,
+          ),
+      )
+      .join('\n')
+  }
+
+  function printDensityClass(
+    recipe: Recipe,
+  ) {
+    const ingredientLines =
+      printableIngredients(recipe)
+    const preparationLines =
+      printablePreparation(recipe)
+    const notes =
+      printableNotes(recipe)
+
+    const ingredientChars =
+      ingredientLines.reduce(
+        (sum, ingredient) =>
+          sum +
+          ingredient.name.length,
+        0,
+      )
+
+    const preparationChars =
+      preparationLines.reduce(
+        (sum, step) =>
+          sum + step.length,
+        0,
+      )
+
+    const totalWeight =
+      ingredientLines.length * 42 +
+      preparationLines.length * 54 +
+      ingredientChars * 0.55 +
+      preparationChars +
+      notes.length * 0.85
+
+    if (totalWeight > 6100) {
+      return 'print-density-ultra'
+    }
+
+    if (totalWeight > 4300) {
+      return 'print-density-very-compact'
+    }
+
+    if (totalWeight > 2800) {
+      return 'print-density-compact'
+    }
+
+    return 'print-density-normal'
+  }
+
+  function printSourceLabel(
+    recipe: Recipe,
+  ) {
+    if (recipe.sourceName?.trim()) {
+      return recipe.sourceName.trim()
+    }
+
+    if (recipe.sourceUrl?.trim()) {
+      try {
+        const url =
+          new URL(
+            recipe.sourceUrl,
+          )
+        return url.hostname.replace(
+          /^www\./,
+          '',
+        )
+      } catch {
+        return 'Online-Rezept'
+      }
+    }
+
+    return ''
+  }
+
+  function printCurrentRecipe() {
+    if (!selectedRecipe) return
+    window.print()
+  }
+
+
   return (
     <div className="app">
+      <style>{`
+        .print-recipe-page {
+          display: none;
+        }
+
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 7mm;
+          }
+
+          html,
+          body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+          }
+
+          body * {
+            visibility: hidden !important;
+          }
+
+          .print-recipe-page,
+          .print-recipe-page * {
+            visibility: visible !important;
+          }
+
+          .print-recipe-page {
+            display: block !important;
+            position: absolute !important;
+            inset: 0 auto auto 0 !important;
+            width: 196mm !important;
+            box-sizing: border-box !important;
+            color: #222 !important;
+            background: #fff !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+          }
+
+          .print-recipe-header {
+            display: grid !important;
+            grid-template-columns: minmax(0, 1fr) 55mm !important;
+            gap: 6mm !important;
+            align-items: start !important;
+            padding-bottom: 3.5mm !important;
+            border-bottom: 1.4px solid #cfc8be !important;
+          }
+
+          .print-recipe-brand {
+            margin-bottom: 2.2mm !important;
+            font-size: 8.6pt !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.02em !important;
+            color: #777 !important;
+          }
+
+          .print-recipe-title {
+            margin: 0 0 2.5mm !important;
+            font-size: 22pt !important;
+            line-height: 1.04 !important;
+            font-weight: 800 !important;
+          }
+
+          .print-recipe-meta {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: 1.6mm 4mm !important;
+            font-size: 10.4pt !important;
+            line-height: 1.2 !important;
+            color: #444 !important;
+          }
+
+          .print-recipe-image {
+            width: 55mm !important;
+            height: 36mm !important;
+            object-fit: cover !important;
+            border-radius: 3mm !important;
+            border: 1px solid #ddd !important;
+          }
+
+          .print-recipe-main {
+            display: grid !important;
+            grid-template-columns: 0.88fr 1.12fr !important;
+            gap: 6mm !important;
+            margin-top: 4.5mm !important;
+            align-items: start !important;
+          }
+
+          .print-recipe-block h3 {
+            margin: 0 0 2mm !important;
+            padding-bottom: 1.2mm !important;
+            border-bottom: 1px solid #d8d3cc !important;
+            font-size: 13.5pt !important;
+            line-height: 1.1 !important;
+          }
+
+          .print-recipe-block ul,
+          .print-recipe-block ol {
+            margin: 0 !important;
+            padding-left: 5mm !important;
+          }
+
+          .print-recipe-block li {
+            margin: 0 0 1.25mm !important;
+            padding-left: 0.5mm !important;
+            line-height: 1.23 !important;
+          }
+
+          .print-recipe-notes {
+            margin-top: 3.8mm !important;
+            padding: 2.7mm 3.3mm !important;
+            border: 1px solid #ddd7cf !important;
+            border-radius: 2.7mm !important;
+            background: #faf9f7 !important;
+            break-inside: avoid !important;
+          }
+
+          .print-recipe-notes h3 {
+            margin: 0 0 1.3mm !important;
+            font-size: 12pt !important;
+          }
+
+          .print-recipe-notes p {
+            margin: 0 !important;
+            line-height: 1.22 !important;
+            white-space: pre-wrap !important;
+          }
+
+          .print-recipe-footer {
+            display: flex !important;
+            justify-content: space-between !important;
+            gap: 6mm !important;
+            margin-top: 3.5mm !important;
+            padding-top: 2mm !important;
+            border-top: 1px solid #ddd8d1 !important;
+            font-size: 8.2pt !important;
+            color: #777 !important;
+          }
+
+          .print-density-normal {
+            font-size: 11.4pt !important;
+          }
+
+          .print-density-compact {
+            font-size: 10.5pt !important;
+          }
+
+          .print-density-compact .print-recipe-title {
+            font-size: 20pt !important;
+          }
+
+          .print-density-compact .print-recipe-image {
+            height: 31mm !important;
+          }
+
+          .print-density-compact .print-recipe-main {
+            gap: 5mm !important;
+            margin-top: 3.8mm !important;
+          }
+
+          .print-density-compact .print-recipe-block li {
+            margin-bottom: 0.9mm !important;
+            line-height: 1.18 !important;
+          }
+
+          .print-density-very-compact {
+            font-size: 9.6pt !important;
+          }
+
+          .print-density-very-compact .print-recipe-header {
+            grid-template-columns: minmax(0, 1fr) 47mm !important;
+            gap: 4.5mm !important;
+          }
+
+          .print-density-very-compact .print-recipe-title {
+            font-size: 18.5pt !important;
+          }
+
+          .print-density-very-compact .print-recipe-image {
+            width: 47mm !important;
+            height: 27mm !important;
+          }
+
+          .print-density-very-compact .print-recipe-main {
+            gap: 4mm !important;
+            margin-top: 3mm !important;
+          }
+
+          .print-density-very-compact .print-recipe-block h3 {
+            font-size: 12pt !important;
+            margin-bottom: 1.2mm !important;
+          }
+
+          .print-density-very-compact .print-recipe-block li {
+            margin-bottom: 0.55mm !important;
+            line-height: 1.13 !important;
+          }
+
+          .print-density-ultra {
+            font-size: 8.9pt !important;
+          }
+
+          .print-density-ultra .print-recipe-header {
+            grid-template-columns: minmax(0, 1fr) 40mm !important;
+            gap: 4mm !important;
+            padding-bottom: 2.5mm !important;
+          }
+
+          .print-density-ultra .print-recipe-title {
+            font-size: 17pt !important;
+          }
+
+          .print-density-ultra .print-recipe-meta {
+            font-size: 8.8pt !important;
+          }
+
+          .print-density-ultra .print-recipe-image {
+            width: 40mm !important;
+            height: 23mm !important;
+          }
+
+          .print-density-ultra .print-recipe-main {
+            gap: 3.5mm !important;
+            margin-top: 2.5mm !important;
+          }
+
+          .print-density-ultra .print-recipe-block h3 {
+            margin-bottom: 0.9mm !important;
+            padding-bottom: 0.8mm !important;
+            font-size: 11.2pt !important;
+          }
+
+          .print-density-ultra .print-recipe-block li {
+            margin-bottom: 0.35mm !important;
+            line-height: 1.09 !important;
+          }
+
+          .print-density-ultra .print-recipe-notes {
+            margin-top: 1.8mm !important;
+            padding: 1.6mm 2mm !important;
+          }
+
+          .print-density-ultra .print-recipe-footer {
+            margin-top: 2mm !important;
+            padding-top: 1.2mm !important;
+            font-size: 7.5pt !important;
+          }
+        }
+      `}</style>
+
       <header className="header">
         <img
           src={`${import.meta.env.BASE_URL}pwa-192x192.png`}
@@ -4042,6 +4461,154 @@ function App() {
       <main className="content">
         {selectedRecipe ? (
           <section className="recipe-detail">
+            <div
+              className={`print-recipe-page ${printDensityClass(
+                selectedRecipe,
+              )}`}
+            >
+              <div className="print-recipe-header">
+                <div>
+                  <div className="print-recipe-brand">
+                    KOCHWERK · MEINE REZEPTBOX
+                  </div>
+
+                  <h1 className="print-recipe-title">
+                    {selectedRecipe.title}
+                  </h1>
+
+                  <div className="print-recipe-meta">
+                    {selectedRecipe.servingsLabel && (
+                      <span>
+                        👥 {selectedRecipe.servingsLabel}
+                      </span>
+                    )}
+
+                    {selectedRecipe.totalTimeMinutes && (
+                      <span>
+                        ⏱️ {selectedRecipe.totalTimeMinutes} Min.
+                      </span>
+                    )}
+
+                    {categoryNameList(
+                      selectedRecipe,
+                    ).length > 0 && (
+                      <span>
+                        {categoryNameList(
+                          selectedRecipe,
+                        ).join(' · ')}
+                      </span>
+                    )}
+
+                    {collectionNameList(
+                      selectedRecipe,
+                    ).length > 0 && (
+                      <span>
+                        Sammlung:{' '}
+                        {collectionNameList(
+                          selectedRecipe,
+                        ).join(' · ')}
+                      </span>
+                    )}
+
+                    {selectedRecipe.favorite && (
+                      <span>
+                        ⭐ Favorit
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {selectedRecipe.sourceImageUrl && (
+                  <img
+                    className="print-recipe-image"
+                    src={
+                      selectedRecipe.sourceImageUrl
+                    }
+                    alt=""
+                  />
+                )}
+              </div>
+
+              <div className="print-recipe-main">
+                <div className="print-recipe-block">
+                  <h3>Zutaten</h3>
+
+                  {printableIngredients(
+                    selectedRecipe,
+                  ).length > 0 ? (
+                    <ul>
+                      {printableIngredients(
+                        selectedRecipe,
+                      ).map(
+                        (ingredient) => (
+                          <li key={ingredient.id}>
+                            {ingredient.name}
+                          </li>
+                        ),
+                      )}
+                    </ul>
+                  ) : (
+                    <p>Keine Zutaten gespeichert.</p>
+                  )}
+                </div>
+
+                <div className="print-recipe-block">
+                  <h3>Zubereitung</h3>
+
+                  {printablePreparation(
+                    selectedRecipe,
+                  ).length > 0 ? (
+                    <ol>
+                      {printablePreparation(
+                        selectedRecipe,
+                      ).map(
+                        (
+                          step,
+                          index,
+                        ) => (
+                          <li key={index}>
+                            {step}
+                          </li>
+                        ),
+                      )}
+                    </ol>
+                  ) : (
+                    <p>Keine Zubereitung gespeichert.</p>
+                  )}
+                </div>
+              </div>
+
+              {printableNotes(
+                selectedRecipe,
+              ) && (
+                <div className="print-recipe-notes">
+                  <h3>Notizen / Tipps</h3>
+
+                  <p>
+                    {printableNotes(
+                      selectedRecipe,
+                    )}
+                  </p>
+                </div>
+              )}
+
+              <div className="print-recipe-footer">
+                <span>
+                  Kochwerk – meine Rezeptbox
+                </span>
+
+                <span>
+                  {printSourceLabel(
+                    selectedRecipe,
+                  )
+                    ? `Quelle: ${printSourceLabel(
+                        selectedRecipe,
+                      )}`
+                    : ''}
+                </span>
+              </div>
+            </div>
+
             <div className="recipe-detail-toolbar">
               <button
                 className="back-button"
@@ -4056,6 +4623,16 @@ function App() {
               </button>
 
               <div className="recipe-actions">
+                <button
+                  className="edit-button"
+                  type="button"
+                  onClick={
+                    printCurrentRecipe
+                  }
+                >
+                  🖨️ Drucken / PDF
+                </button>
+
                 <button
                   className="favorite-button"
                   type="button"

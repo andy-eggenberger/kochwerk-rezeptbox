@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.6.3'
+const APP_VERSION = '0.6.4'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -5535,9 +5535,9 @@ function App() {
                         }
                         style={{
                           width:
-                            '250px',
+                            '290px',
                           maxWidth:
-                            '250px',
+                            '290px',
                         }}
                       >
                         <button
@@ -5605,11 +5605,13 @@ function App() {
                               flex:
                                 '1 1 0',
                               minWidth:
-                                '96px',
+                                '118px',
                               whiteSpace:
                                 'nowrap',
                               padding:
-                                '10px 12px',
+                                '10px 14px',
+                              textAlign:
+                                'center',
                             }}
                             onClick={() =>
                               openCategoryEdit(
@@ -5627,11 +5629,13 @@ function App() {
                               flex:
                                 '1 1 0',
                               minWidth:
-                                '96px',
+                                '118px',
                               whiteSpace:
                                 'nowrap',
                               padding:
-                                '10px 12px',
+                                '10px 14px',
+                              textAlign:
+                                'center',
                             }}
                             onClick={() =>
                               deleteCategory(
@@ -5726,9 +5730,9 @@ function App() {
                         }
                         style={{
                           width:
-                            '250px',
+                            '290px',
                           maxWidth:
-                            '250px',
+                            '290px',
                         }}
                       >
                         <button
@@ -5825,11 +5829,13 @@ function App() {
                               flex:
                                 '1 1 0',
                               minWidth:
-                                '96px',
+                                '118px',
                               whiteSpace:
                                 'nowrap',
                               padding:
-                                '10px 12px',
+                                '10px 14px',
+                              textAlign:
+                                'center',
                             }}
                             onClick={() =>
                               openCollectionEdit(
@@ -5847,11 +5853,13 @@ function App() {
                               flex:
                                 '1 1 0',
                               minWidth:
-                                '96px',
+                                '118px',
                               whiteSpace:
                                 'nowrap',
                               padding:
-                                '10px 12px',
+                                '10px 14px',
+                              textAlign:
+                                'center',
                             }}
                             onClick={() =>
                               deleteCollection(

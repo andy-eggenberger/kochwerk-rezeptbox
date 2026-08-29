@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.6.0'
+const APP_VERSION = '0.6.1'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -5533,6 +5533,10 @@ function App() {
                         key={
                           category.id
                         }
+                        style={{
+                          maxWidth:
+                            '190px',
+                        }}
                       >
                         <button
                           type="button"
@@ -5543,12 +5547,28 @@ function App() {
                             )
                           }
                         >
-                          <div className="recipe-card-placeholder">
+                          <div
+                            className="recipe-card-placeholder"
+                            style={{
+                              minHeight:
+                                '86px',
+                              height:
+                                '86px',
+                              fontSize:
+                                '2.15rem',
+                            }}
+                          >
                             {category.icon ||
                               '—'}
                           </div>
 
-                          <div className="recipe-card-content">
+                          <div
+                            className="recipe-card-content"
+                            style={{
+                              padding:
+                                '12px 14px 10px',
+                            }}
+                          >
                             <h3>
                               {
                                 category.name
@@ -5570,7 +5590,7 @@ function App() {
                               'flex',
                             gap: '8px',
                             padding:
-                              '0 20px 20px',
+                              '0 12px 12px',
                           }}
                         >
                           <button
@@ -5685,6 +5705,10 @@ function App() {
                         key={
                           collection.id
                         }
+                        style={{
+                          maxWidth:
+                            '190px',
+                        }}
                       >
                         <button
                           type="button"
@@ -5695,19 +5719,57 @@ function App() {
                             )
                           }
                         >
-                          <div className="recipe-card-placeholder">
+                          <div
+                            className="recipe-card-placeholder"
+                            style={{
+                              minHeight:
+                                '86px',
+                              height:
+                                '86px',
+                              fontSize:
+                                '2.05rem',
+                            }}
+                          >
                             🗃️
                           </div>
 
-                          <div className="recipe-card-content">
+                          <div
+                            className="recipe-card-content"
+                            style={{
+                              padding:
+                                '12px 14px 10px',
+                            }}
+                          >
                             <h3>
                               {
                                 collection.name
                               }
                             </h3>
 
-                            {collection.description && (
-                              <p>
+                            {collection.description?.trim() && (
+                              <p
+                                style={{
+                                  margin:
+                                    '4px 0',
+                                  color:
+                                    '#777168',
+                                  fontSize:
+                                    '0.88rem',
+                                  lineHeight:
+                                    1.25,
+                                  display:
+                                    '-webkit-box',
+                                  WebkitLineClamp:
+                                    2,
+                                  WebkitBoxOrient:
+                                    'vertical',
+                                  overflow:
+                                    'hidden',
+                                }}
+                                title={
+                                  collection.description
+                                }
+                              >
                                 {
                                   collection.description
                                 }
@@ -5729,7 +5791,7 @@ function App() {
                               'flex',
                             gap: '8px',
                             padding:
-                              '0 20px 20px',
+                              '0 12px 12px',
                           }}
                         >
                           <button

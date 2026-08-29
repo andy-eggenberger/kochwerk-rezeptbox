@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.5.2'
+const APP_VERSION = '0.5.3'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -4043,9 +4043,20 @@ function App() {
 
     if (
       /^\d+\s+views?$/.test(lower) ||
-      /^\d+\s+(months?|monaten?|days?|tagen?|hours?|stunden?)\s+ago$/.test(
+      /^\d+\s+(years?|jahre?n?|months?|monaten?|days?|tagen?|hours?|stunden?)\s+ago$/.test(
         lower,
       )
+    ) {
+      return true
+    }
+
+    if (
+      lower.includes('facebook') ||
+      lower.includes('teilen') ||
+      lower.includes('zur nächsten seite') ||
+      lower.includes('zur naechsten seite') ||
+      lower.includes('kochschritte abzuschließen') ||
+      lower.includes('kochschritte abzuschliessen')
     ) {
       return true
     }
@@ -4155,6 +4166,10 @@ function App() {
 
     if (totalWeight > 2800) {
       return 'print-density-compact'
+    }
+
+    if (totalWeight < 1500) {
+      return 'print-density-short'
     }
 
     return 'print-density-normal'
@@ -4301,6 +4316,11 @@ function App() {
             align-items: start !important;
           }
 
+          .print-recipe-block {
+            min-width: 0 !important;
+            text-align: left !important;
+          }
+
           .print-recipe-block h3 {
             margin: 0 0 2mm !important;
             padding-bottom: 1.2mm !important;
@@ -4319,6 +4339,7 @@ function App() {
             margin: 0 0 1.25mm !important;
             padding-left: 0.5mm !important;
             line-height: 1.23 !important;
+            text-align: left !important;
           }
 
           .print-recipe-notes {
@@ -4352,8 +4373,48 @@ function App() {
             color: #777 !important;
           }
 
+          .print-density-short {
+            font-size: 12.8pt !important;
+          }
+
+          .print-density-short .print-recipe-header {
+            grid-template-columns: minmax(0, 1fr) 72mm !important;
+            gap: 7mm !important;
+            padding-bottom: 5mm !important;
+          }
+
+          .print-density-short .print-recipe-title {
+            font-size: 25pt !important;
+            margin-bottom: 3mm !important;
+          }
+
+          .print-density-short .print-recipe-meta {
+            font-size: 11.2pt !important;
+          }
+
+          .print-density-short .print-recipe-image {
+            width: 72mm !important;
+            height: 48mm !important;
+          }
+
+          .print-density-short .print-recipe-main {
+            grid-template-columns: 0.82fr 1.18fr !important;
+            gap: 8mm !important;
+            margin-top: 7mm !important;
+          }
+
+          .print-density-short .print-recipe-block h3 {
+            font-size: 15pt !important;
+            margin-bottom: 3mm !important;
+          }
+
+          .print-density-short .print-recipe-block li {
+            margin-bottom: 2mm !important;
+            line-height: 1.32 !important;
+          }
+
           .print-density-normal {
-            font-size: 11.4pt !important;
+            font-size: 11.7pt !important;
           }
 
           .print-density-compact {

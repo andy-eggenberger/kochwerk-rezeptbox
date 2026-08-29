@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.6.4'
+const APP_VERSION = '0.6.5'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -5535,9 +5535,13 @@ function App() {
                         }
                         style={{
                           width:
-                            '290px',
+                            '320px',
+                          minWidth:
+                            '320px',
                           maxWidth:
-                            '290px',
+                            '320px',
+                          overflow:
+                            'visible',
                         }}
                       >
                         <button
@@ -5589,29 +5593,39 @@ function App() {
                         <div
                           style={{
                             display:
-                              'flex',
+                              'grid',
+                            gridTemplateColumns:
+                              '1fr 1fr',
                             gap:
-                              '10px',
+                              '12px',
                             padding:
                               '0 14px 14px',
-                            flexWrap:
-                              'nowrap',
+                            width:
+                              '100%',
+                            boxSizing:
+                              'border-box',
+                            overflow:
+                              'visible',
                           }}
                         >
                           <button
                             className="edit-button"
                             type="button"
                             style={{
-                              flex:
-                                '1 1 0',
+                              width:
+                                '100%',
                               minWidth:
-                                '118px',
+                                '0',
                               whiteSpace:
                                 'nowrap',
                               padding:
-                                '10px 14px',
+                                '10px 12px',
                               textAlign:
                                 'center',
+                              boxSizing:
+                                'border-box',
+                              overflow:
+                                'visible',
                             }}
                             onClick={() =>
                               openCategoryEdit(
@@ -5626,16 +5640,20 @@ function App() {
                             className="delete-button"
                             type="button"
                             style={{
-                              flex:
-                                '1 1 0',
+                              width:
+                                '100%',
                               minWidth:
-                                '118px',
+                                '0',
                               whiteSpace:
                                 'nowrap',
                               padding:
-                                '10px 14px',
+                                '10px 12px',
                               textAlign:
                                 'center',
+                              boxSizing:
+                                'border-box',
+                              overflow:
+                                'visible',
                             }}
                             onClick={() =>
                               deleteCategory(
@@ -5730,9 +5748,13 @@ function App() {
                         }
                         style={{
                           width:
-                            '290px',
+                            '320px',
+                          minWidth:
+                            '320px',
                           maxWidth:
-                            '290px',
+                            '320px',
+                          overflow:
+                            'visible',
                         }}
                       >
                         <button
@@ -5813,29 +5835,39 @@ function App() {
                         <div
                           style={{
                             display:
-                              'flex',
+                              'grid',
+                            gridTemplateColumns:
+                              '1fr 1fr',
                             gap:
-                              '10px',
+                              '12px',
                             padding:
                               '0 14px 14px',
-                            flexWrap:
-                              'nowrap',
+                            width:
+                              '100%',
+                            boxSizing:
+                              'border-box',
+                            overflow:
+                              'visible',
                           }}
                         >
                           <button
                             className="edit-button"
                             type="button"
                             style={{
-                              flex:
-                                '1 1 0',
+                              width:
+                                '100%',
                               minWidth:
-                                '118px',
+                                '0',
                               whiteSpace:
                                 'nowrap',
                               padding:
-                                '10px 14px',
+                                '10px 12px',
                               textAlign:
                                 'center',
+                              boxSizing:
+                                'border-box',
+                              overflow:
+                                'visible',
                             }}
                             onClick={() =>
                               openCollectionEdit(
@@ -5850,16 +5882,20 @@ function App() {
                             className="delete-button"
                             type="button"
                             style={{
-                              flex:
-                                '1 1 0',
+                              width:
+                                '100%',
                               minWidth:
-                                '118px',
+                                '0',
                               whiteSpace:
                                 'nowrap',
                               padding:
-                                '10px 14px',
+                                '10px 12px',
                               textAlign:
                                 'center',
+                              boxSizing:
+                                'border-box',
+                              overflow:
+                                'visible',
                             }}
                             onClick={() =>
                               deleteCollection(

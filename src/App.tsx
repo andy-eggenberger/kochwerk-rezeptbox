@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.5.1'
+const APP_VERSION = '0.5.2'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -4211,8 +4211,28 @@ function App() {
             background: #fff !important;
           }
 
-          body * {
-            visibility: hidden !important;
+          .header,
+          footer,
+          .recipe-detail > :not(.print-recipe-page),
+          .modal-backdrop {
+            display: none !important;
+          }
+
+          #root,
+          .app,
+          .content,
+          .recipe-detail {
+            display: block !important;
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            height: auto !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            background: #fff !important;
           }
 
           .print-recipe-page,
@@ -4222,13 +4242,14 @@ function App() {
 
           .print-recipe-page {
             display: block !important;
-            position: absolute !important;
-            inset: 0 auto auto 0 !important;
+            position: static !important;
             width: 196mm !important;
             box-sizing: border-box !important;
             color: #222 !important;
             background: #fff !important;
             font-family: Arial, Helvetica, sans-serif !important;
+            break-after: avoid-page !important;
+            page-break-after: avoid !important;
           }
 
           .print-recipe-header {

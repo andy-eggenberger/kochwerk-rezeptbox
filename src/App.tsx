@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.5.3'
+const APP_VERSION = '0.6.0'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -5018,7 +5018,10 @@ function App() {
                 </strong>
 
                 <span>
-                  Alle Rezepte ansehen
+                  {recipes.length}{' '}
+                  {recipes.length === 1
+                    ? 'Rezept'
+                    : 'Rezepte'}
                 </span>
               </button>
 

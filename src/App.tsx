@@ -39,7 +39,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.8.1'
+const APP_VERSION = '0.8.2'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -119,6 +119,26 @@ const CATEGORY_ICONS = [
   '🥤',
   '🧃',
   '🥛',
+
+  // Anlässe / Sammlungen
+  '🎄',
+  '🐣',
+  '🔥',
+  '⚡',
+  '🍽️',
+  '🥂',
+  '🍟',
+  '❤️',
+  '⏳',
+  '🇨🇭',
+  '🇮🇹',
+  '🫙',
+  '🎉',
+  '🎁',
+  '🎃',
+  '🌞',
+  '🍂',
+  '❄️',
 ]
 
 function App() {

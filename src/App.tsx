@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.6.5'
+const APP_VERSION = '0.7.1'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -4205,6 +4205,273 @@ function App() {
     window.print()
   }
 
+  function buildShareText(
+    recipe: Recipe,
+  ) {
+    const ingredients =
+      printableIngredients(recipe)
+
+    const preparation =
+      printablePreparation(recipe)
+
+    const notes =
+      printableNotes(recipe)
+
+    const lines: string[] = [
+      recipe.title,
+      '',
+    ]
+
+    if (recipe.servingsLabel) {
+      lines.push(
+        `Portionen: ${recipe.servingsLabel}`,
+      )
+    }
+
+    if (recipe.totalTimeMinutes) {
+      lines.push(
+        `Zeit: ${recipe.totalTimeMinutes} Min.`,
+      )
+    }
+
+    const categories =
+      categoryNameList(recipe)
+
+    if (categories.length > 0) {
+      lines.push(
+        `Kategorie: ${categories.join(', ')}`,
+      )
+    }
+
+    if (
+      recipe.servingsLabel ||
+      recipe.totalTimeMinutes ||
+      categories.length > 0
+    ) {
+      lines.push('')
+    }
+
+    lines.push('ZUTATEN')
+
+    if (ingredients.length > 0) {
+      ingredients.forEach(
+        (ingredient) => {
+          lines.push(
+            `• ${ingredient.name}`,
+          )
+        },
+      )
+    } else {
+      lines.push(
+        'Keine Zutaten gespeichert.',
+      )
+    }
+
+    lines.push('', 'ZUBEREITUNG')
+
+    if (preparation.length > 0) {
+      preparation.forEach(
+        (step, index) => {
+          lines.push(
+            `${index + 1}. ${step}`,
+          )
+        },
+      )
+    } else {
+      lines.push(
+        'Keine Zubereitung gespeichert.',
+      )
+    }
+
+    if (notes) {
+      lines.push(
+        '',
+        'NOTIZEN / TIPPS',
+        notes,
+      )
+    }
+
+    const sourceLabel =
+      printSourceLabel(recipe)
+
+    if (sourceLabel) {
+      lines.push(
+        '',
+        `Quelle: ${sourceLabel}`,
+      )
+    }
+
+    lines.push(
+      '',
+      'Geteilt aus Kochwerk – meine Rezeptbox',
+    )
+
+    return lines.join('\n')
+  }
+
+  async function getRecipeShareImageFile(
+    recipe: Recipe,
+  ): Promise<File | null> {
+    const imageUrl =
+      recipe.sourceImageUrl?.trim()
+
+    if (!imageUrl) {
+      return null
+    }
+
+    try {
+      const response =
+        await fetch(
+          imageUrl,
+          {
+            cache: 'no-store',
+          },
+        )
+
+      if (!response.ok) {
+        return null
+      }
+
+      const blob =
+        await response.blob()
+
+      if (
+        !blob.type.startsWith(
+          'image/',
+        )
+      ) {
+        return null
+      }
+
+      const extension =
+        blob.type.includes(
+          'png',
+        )
+          ? 'png'
+          : blob.type.includes(
+                'webp',
+              )
+            ? 'webp'
+            : 'jpg'
+
+      const safeTitle =
+        recipe.title
+          .trim()
+          .replace(
+            /[^a-zA-Z0-9äöüÄÖÜß_-]+/g,
+            '-',
+          )
+          .replace(
+            /^-+|-+$/g,
+            '',
+          )
+          .slice(
+            0,
+            60,
+          ) ||
+        'kochwerk-rezept'
+
+      return new File(
+        [
+          blob,
+        ],
+        `${safeTitle}.${extension}`,
+        {
+          type:
+            blob.type ||
+            'image/jpeg',
+        },
+      )
+    } catch (error) {
+      console.warn(
+        'Rezeptbild konnte für Teilen nicht geladen werden:',
+        error,
+      )
+
+      return null
+    }
+  }
+
+  async function shareCurrentRecipe() {
+    if (!selectedRecipe) return
+
+    const shareText =
+      buildShareText(
+        selectedRecipe,
+      )
+
+    try {
+      if (navigator.share) {
+        const imageFile =
+          await getRecipeShareImageFile(
+            selectedRecipe,
+          )
+
+        if (
+          imageFile &&
+          navigator.canShare?.({
+            files: [
+              imageFile,
+            ],
+          })
+        ) {
+          await navigator.share({
+            title:
+              selectedRecipe.title,
+            text: shareText,
+            files: [
+              imageFile,
+            ],
+          })
+
+          return
+        }
+
+        await navigator.share({
+          title:
+            selectedRecipe.title,
+          text: shareText,
+        })
+
+        return
+      }
+
+      await navigator.clipboard.writeText(
+        shareText,
+      )
+
+      window.alert(
+        'Rezept wurde in die Zwischenablage kopiert.',
+      )
+    } catch (error) {
+      if (
+        error instanceof DOMException &&
+        error.name === 'AbortError'
+      ) {
+        return
+      }
+
+      console.error(
+        'Rezept teilen fehlgeschlagen:',
+        error,
+      )
+
+      try {
+        await navigator.clipboard.writeText(
+          shareText,
+        )
+
+        window.alert(
+          'Teilen war nicht verfügbar. Das Rezept wurde stattdessen in die Zwischenablage kopiert.',
+        )
+      } catch {
+        window.alert(
+          'Das Rezept konnte auf diesem Gerät nicht geteilt werden.',
+        )
+      }
+    }
+  }
+
 
   return (
     <div className="app">
@@ -4713,6 +4980,16 @@ function App() {
                   }
                 >
                   🖨️ Drucken / PDF
+                </button>
+
+                <button
+                  className="edit-button"
+                  type="button"
+                  onClick={
+                    shareCurrentRecipe
+                  }
+                >
+                  📤 Teilen
                 </button>
 
                 <button

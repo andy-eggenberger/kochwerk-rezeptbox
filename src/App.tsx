@@ -39,7 +39,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.8.0'
+const APP_VERSION = '0.8.1'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -6272,7 +6272,7 @@ function App() {
               </div>
             ) : (
               <div className="recipe-grid">
-                {categories.map(
+                {sortedCategoriesForDisplay().map(
                   (category) => {
                     const count =
                       category.id
@@ -6633,7 +6633,7 @@ function App() {
               </div>
             ) : (
               <div className="recipe-grid">
-                {collections.map(
+                {sortedCollectionsForDisplay().map(
                   (collection) => {
                     const count =
                       collection.id

@@ -28,6 +28,8 @@ type View =
   | 'collectionRecipes'
   | 'search'
 
+type SortMode = 'manual' | 'az' | 'za'
+
 type BackupData = {
   app: 'Kochwerk'
   backupVersion: 1
@@ -37,7 +39,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.7.2'
+const APP_VERSION = '0.8.0'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -277,6 +279,39 @@ function App() {
     editCollectionDescription,
     setEditCollectionDescription,
   ] = useState('')
+
+
+  const [newCollectionIcon, setNewCollectionIcon] =
+    useState<string | undefined>('🗃️')
+
+  const [newCollectionCustomEmoji, setNewCollectionCustomEmoji] =
+    useState('')
+
+  const [editCollectionIcon, setEditCollectionIcon] =
+    useState<string | undefined>('🗃️')
+
+  const [editCollectionCustomEmoji, setEditCollectionCustomEmoji] =
+    useState('')
+
+  const [categorySortMode, setCategorySortMode] =
+    useState<SortMode>(() =>
+      (window.localStorage.getItem(
+        'kochwerkCategorySortMode',
+      ) as SortMode | null) ?? 'manual',
+    )
+
+  const [collectionSortMode, setCollectionSortMode] =
+    useState<SortMode>(() =>
+      (window.localStorage.getItem(
+        'kochwerkCollectionSortMode',
+      ) as SortMode | null) ?? 'manual',
+    )
+
+  const [draggedCategoryId, setDraggedCategoryId] =
+    useState<number | null>(null)
+
+  const [draggedCollectionId, setDraggedCollectionId] =
+    useState<number | null>(null)
 
   const [importUrl, setImportUrl] = useState('')
   const [importMessage, setImportMessage] = useState('')
@@ -543,7 +578,9 @@ function App() {
       )
       .map(
         (collection) =>
-          `🗃️ ${collection.name}`,
+          collection.icon
+            ? `${collection.icon} ${collection.name}`
+            : collection.name,
       )
   }
 
@@ -3210,6 +3247,352 @@ function App() {
     )
   }
 
+  function sortedCategoriesForDisplay() {
+    const items =
+      [...categories]
+
+    if (categorySortMode === 'az') {
+      return items.sort((a, b) =>
+        a.name.localeCompare(
+          b.name,
+          'de',
+          {
+            sensitivity:
+              'base',
+          },
+        ),
+      )
+    }
+
+    if (categorySortMode === 'za') {
+      return items.sort((a, b) =>
+        b.name.localeCompare(
+          a.name,
+          'de',
+          {
+            sensitivity:
+              'base',
+          },
+        ),
+      )
+    }
+
+    return items.sort(
+      (a, b) =>
+        a.sortOrder -
+        b.sortOrder,
+    )
+  }
+
+  function sortedCollectionsForDisplay() {
+    const items =
+      [...collections]
+
+    if (collectionSortMode === 'az') {
+      return items.sort((a, b) =>
+        a.name.localeCompare(
+          b.name,
+          'de',
+          {
+            sensitivity:
+              'base',
+          },
+        ),
+      )
+    }
+
+    if (collectionSortMode === 'za') {
+      return items.sort((a, b) =>
+        b.name.localeCompare(
+          a.name,
+          'de',
+          {
+            sensitivity:
+              'base',
+          },
+        ),
+      )
+    }
+
+    return items.sort(
+      (a, b) =>
+        a.sortOrder -
+        b.sortOrder,
+    )
+  }
+
+  function changeCategorySortMode(
+    mode: SortMode,
+  ) {
+    setCategorySortMode(mode)
+
+    window.localStorage.setItem(
+      'kochwerkCategorySortMode',
+      mode,
+    )
+  }
+
+  function changeCollectionSortMode(
+    mode: SortMode,
+  ) {
+    setCollectionSortMode(mode)
+
+    window.localStorage.setItem(
+      'kochwerkCollectionSortMode',
+      mode,
+    )
+  }
+
+  async function saveCategoryOrder(
+    ordered: Category[],
+  ) {
+    await db.transaction(
+      'rw',
+      db.categories,
+      async () => {
+        for (
+          let index = 0;
+          index < ordered.length;
+          index++
+        ) {
+          const item =
+            ordered[index]
+
+          if (!item.id) continue
+
+          await db.categories.update(
+            item.id,
+            {
+              sortOrder:
+                index,
+            },
+          )
+        }
+      },
+    )
+
+    await loadCategories()
+  }
+
+  async function saveCollectionOrder(
+    ordered: Collection[],
+  ) {
+    await db.transaction(
+      'rw',
+      db.collections,
+      async () => {
+        for (
+          let index = 0;
+          index < ordered.length;
+          index++
+        ) {
+          const item =
+            ordered[index]
+
+          if (!item.id) continue
+
+          await db.collections.update(
+            item.id,
+            {
+              sortOrder:
+                index,
+            },
+          )
+        }
+      },
+    )
+
+    await loadCollections()
+  }
+
+  async function moveCategoryTo(
+    sourceId: number,
+    targetId: number,
+  ) {
+    if (
+      sourceId === targetId ||
+      categorySortMode !==
+        'manual'
+    ) {
+      return
+    }
+
+    const ordered =
+      sortedCategoriesForDisplay()
+
+    const sourceIndex =
+      ordered.findIndex(
+        (item) =>
+          item.id === sourceId,
+      )
+
+    const targetIndex =
+      ordered.findIndex(
+        (item) =>
+          item.id === targetId,
+      )
+
+    if (
+      sourceIndex < 0 ||
+      targetIndex < 0
+    ) {
+      return
+    }
+
+    const [moved] =
+      ordered.splice(
+        sourceIndex,
+        1,
+      )
+
+    ordered.splice(
+      targetIndex,
+      0,
+      moved,
+    )
+
+    await saveCategoryOrder(
+      ordered,
+    )
+  }
+
+  async function moveCollectionTo(
+    sourceId: number,
+    targetId: number,
+  ) {
+    if (
+      sourceId === targetId ||
+      collectionSortMode !==
+        'manual'
+    ) {
+      return
+    }
+
+    const ordered =
+      sortedCollectionsForDisplay()
+
+    const sourceIndex =
+      ordered.findIndex(
+        (item) =>
+          item.id === sourceId,
+      )
+
+    const targetIndex =
+      ordered.findIndex(
+        (item) =>
+          item.id === targetId,
+      )
+
+    if (
+      sourceIndex < 0 ||
+      targetIndex < 0
+    ) {
+      return
+    }
+
+    const [moved] =
+      ordered.splice(
+        sourceIndex,
+        1,
+      )
+
+    ordered.splice(
+      targetIndex,
+      0,
+      moved,
+    )
+
+    await saveCollectionOrder(
+      ordered,
+    )
+  }
+
+  async function moveCategoryByOffset(
+    categoryId: number,
+    offset: number,
+  ) {
+    const ordered =
+      sortedCategoriesForDisplay()
+
+    const currentIndex =
+      ordered.findIndex(
+        (item) =>
+          item.id === categoryId,
+      )
+
+    const nextIndex =
+      currentIndex +
+      offset
+
+    if (
+      currentIndex < 0 ||
+      nextIndex < 0 ||
+      nextIndex >=
+        ordered.length
+    ) {
+      return
+    }
+
+    const [moved] =
+      ordered.splice(
+        currentIndex,
+        1,
+      )
+
+    ordered.splice(
+      nextIndex,
+      0,
+      moved,
+    )
+
+    await saveCategoryOrder(
+      ordered,
+    )
+  }
+
+  async function moveCollectionByOffset(
+    collectionId: number,
+    offset: number,
+  ) {
+    const ordered =
+      sortedCollectionsForDisplay()
+
+    const currentIndex =
+      ordered.findIndex(
+        (item) =>
+          item.id === collectionId,
+      )
+
+    const nextIndex =
+      currentIndex +
+      offset
+
+    if (
+      currentIndex < 0 ||
+      nextIndex < 0 ||
+      nextIndex >=
+        ordered.length
+    ) {
+      return
+    }
+
+    const [moved] =
+      ordered.splice(
+        currentIndex,
+        1,
+      )
+
+    ordered.splice(
+      nextIndex,
+      0,
+      moved,
+    )
+
+    await saveCollectionOrder(
+      ordered,
+    )
+  }
+
   function openNewCategory() {
     setNewCategoryName('')
     setNewCategoryIcon('🍽️')
@@ -3384,6 +3767,8 @@ function App() {
   function openNewCollection() {
     setNewCollectionName('')
     setNewCollectionDescription('')
+    setNewCollectionIcon('🗃️')
+    setNewCollectionCustomEmoji('')
 
     setShowNewCollection(true)
   }
@@ -3420,6 +3805,9 @@ function App() {
       description:
         newCollectionDescription.trim() ||
         undefined,
+
+      icon:
+        newCollectionIcon,
 
       sortOrder:
         collections.length,
@@ -3458,6 +3846,13 @@ function App() {
         '',
     )
 
+    setEditCollectionIcon(
+      collection.icon ??
+        '🗃️',
+    )
+
+    setEditCollectionCustomEmoji('')
+
     setShowEditCollection(true)
   }
 
@@ -3486,6 +3881,9 @@ function App() {
         description:
           editCollectionDescription.trim() ||
           undefined,
+
+        icon:
+          editCollectionIcon,
       },
     )
 
@@ -3497,6 +3895,9 @@ function App() {
       description:
         editCollectionDescription.trim() ||
         undefined,
+
+      icon:
+        editCollectionIcon,
     })
 
     setShowEditCollection(false)
@@ -5604,7 +6005,7 @@ function App() {
                       Alle Kategorien
                     </option>
 
-                    {categories.map(
+                    {sortedCategoriesForDisplay().map(
                       (category) =>
                         category.id ? (
                           <option
@@ -5647,7 +6048,7 @@ function App() {
                       Alle Sammlungen
                     </option>
 
-                    {collections.map(
+                    {sortedCollectionsForDisplay().map(
                       (collection) =>
                         collection.id ? (
                           <option
@@ -5799,6 +6200,71 @@ function App() {
               ＋ Neue Kategorie
             </button>
 
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems:
+                  'center',
+                gap: '10px',
+                marginBottom:
+                  '18px',
+                padding:
+                  '12px 14px',
+                background:
+                  '#faf8f5',
+                border:
+                  '1px solid #e4ded6',
+                borderRadius:
+                  '12px',
+              }}
+            >
+              <strong>
+                Sortierung:
+              </strong>
+
+              <select
+                value={
+                  categorySortMode
+                }
+                onChange={(event) =>
+                  changeCategorySortMode(
+                    event.target
+                      .value as SortMode,
+                  )
+                }
+                style={{
+                  minWidth:
+                    '170px',
+                }}
+              >
+                <option value="manual">
+                  ↕ Manuell
+                </option>
+                <option value="az">
+                  A–Z
+                </option>
+                <option value="za">
+                  Z–A
+                </option>
+              </select>
+
+              {categorySortMode ===
+                'manual' && (
+                <span
+                  style={{
+                    color:
+                      '#706a62',
+                    fontSize:
+                      '0.9rem',
+                  }}
+                >
+                  Karten ziehen oder mit
+                  ◀ ▶ verschieben.
+                </span>
+              )}
+            </div>
+
             {categories.length ===
             0 ? (
               <div className="empty-recipes">
@@ -5828,6 +6294,44 @@ function App() {
                         className="recipe-card"
                         key={
                           category.id
+                        }
+                        draggable={
+                          categorySortMode ===
+                          'manual'
+                        }
+                        onDragStart={() =>
+                          category.id &&
+                          setDraggedCategoryId(
+                            category.id,
+                          )
+                        }
+                        onDragOver={(event) => {
+                          if (
+                            categorySortMode ===
+                            'manual'
+                          ) {
+                            event.preventDefault()
+                          }
+                        }}
+                        onDrop={() => {
+                          if (
+                            draggedCategoryId &&
+                            category.id
+                          ) {
+                            void moveCategoryTo(
+                              draggedCategoryId,
+                              category.id,
+                            )
+                          }
+
+                          setDraggedCategoryId(
+                            null,
+                          )
+                        }}
+                        onDragEnd={() =>
+                          setDraggedCategoryId(
+                            null,
+                          )
                         }
                         style={{
                           width:
@@ -5885,6 +6389,51 @@ function App() {
                             </p>
                           </div>
                         </button>
+
+                        {categorySortMode ===
+                          'manual' &&
+                          category.id && (
+                            <div
+                              style={{
+                                display:
+                                  'grid',
+                                gridTemplateColumns:
+                                  '1fr 1fr',
+                                gap:
+                                  '8px',
+                                padding:
+                                  '0 14px 8px',
+                              }}
+                            >
+                              <button
+                                className="back-button"
+                                type="button"
+                                onClick={() =>
+                                  void moveCategoryByOffset(
+                                    category.id!,
+                                    -1,
+                                  )
+                                }
+                                title="Nach links / vorne"
+                              >
+                                ◀
+                              </button>
+
+                              <button
+                                className="back-button"
+                                type="button"
+                                onClick={() =>
+                                  void moveCategoryByOffset(
+                                    category.id!,
+                                    1,
+                                  )
+                                }
+                                title="Nach rechts / hinten"
+                              >
+                                ▶
+                              </button>
+                            </div>
+                          )}
 
                         <div
                           style={{
@@ -6012,6 +6561,71 @@ function App() {
               ＋ Neue Sammlung
             </button>
 
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems:
+                  'center',
+                gap: '10px',
+                marginBottom:
+                  '18px',
+                padding:
+                  '12px 14px',
+                background:
+                  '#faf8f5',
+                border:
+                  '1px solid #e4ded6',
+                borderRadius:
+                  '12px',
+              }}
+            >
+              <strong>
+                Sortierung:
+              </strong>
+
+              <select
+                value={
+                  collectionSortMode
+                }
+                onChange={(event) =>
+                  changeCollectionSortMode(
+                    event.target
+                      .value as SortMode,
+                  )
+                }
+                style={{
+                  minWidth:
+                    '170px',
+                }}
+              >
+                <option value="manual">
+                  ↕ Manuell
+                </option>
+                <option value="az">
+                  A–Z
+                </option>
+                <option value="za">
+                  Z–A
+                </option>
+              </select>
+
+              {collectionSortMode ===
+                'manual' && (
+                <span
+                  style={{
+                    color:
+                      '#706a62',
+                    fontSize:
+                      '0.9rem',
+                  }}
+                >
+                  Karten ziehen oder mit
+                  ◀ ▶ verschieben.
+                </span>
+              )}
+            </div>
+
             {collections.length ===
             0 ? (
               <div className="empty-recipes">
@@ -6041,6 +6655,44 @@ function App() {
                         className="recipe-card"
                         key={
                           collection.id
+                        }
+                        draggable={
+                          collectionSortMode ===
+                          'manual'
+                        }
+                        onDragStart={() =>
+                          collection.id &&
+                          setDraggedCollectionId(
+                            collection.id,
+                          )
+                        }
+                        onDragOver={(event) => {
+                          if (
+                            collectionSortMode ===
+                            'manual'
+                          ) {
+                            event.preventDefault()
+                          }
+                        }}
+                        onDrop={() => {
+                          if (
+                            draggedCollectionId &&
+                            collection.id
+                          ) {
+                            void moveCollectionTo(
+                              draggedCollectionId,
+                              collection.id,
+                            )
+                          }
+
+                          setDraggedCollectionId(
+                            null,
+                          )
+                        }}
+                        onDragEnd={() =>
+                          setDraggedCollectionId(
+                            null,
+                          )
                         }
                         style={{
                           width:
@@ -6073,7 +6725,8 @@ function App() {
                                 '2.05rem',
                             }}
                           >
-                            🗃️
+                            {collection.icon ||
+                              '🗃️'}
                           </div>
 
                           <div
@@ -6127,6 +6780,51 @@ function App() {
                             </p>
                           </div>
                         </button>
+
+                        {collectionSortMode ===
+                          'manual' &&
+                          collection.id && (
+                            <div
+                              style={{
+                                display:
+                                  'grid',
+                                gridTemplateColumns:
+                                  '1fr 1fr',
+                                gap:
+                                  '8px',
+                                padding:
+                                  '0 14px 8px',
+                              }}
+                            >
+                              <button
+                                className="back-button"
+                                type="button"
+                                onClick={() =>
+                                  void moveCollectionByOffset(
+                                    collection.id!,
+                                    -1,
+                                  )
+                                }
+                                title="Nach links / vorne"
+                              >
+                                ◀
+                              </button>
+
+                              <button
+                                className="back-button"
+                                type="button"
+                                onClick={() =>
+                                  void moveCollectionByOffset(
+                                    collection.id!,
+                                    1,
+                                  )
+                                }
+                                title="Nach rechts / hinten"
+                              >
+                                ▶
+                              </button>
+                            </div>
+                          )}
 
                         <div
                           style={{
@@ -8193,6 +8891,33 @@ function App() {
             </h2>
 
             <label>
+              Symbol auswählen
+            </label>
+
+            {renderIconPicker(
+              newCollectionIcon,
+              setNewCollectionIcon,
+              newCollectionCustomEmoji,
+              setNewCollectionCustomEmoji,
+            )}
+
+            <div
+              style={{
+                textAlign:
+                  'center',
+                fontSize:
+                  newCollectionIcon
+                    ? '3rem'
+                    : '1rem',
+                margin:
+                  '8px 0 18px',
+              }}
+            >
+              {newCollectionIcon ||
+                'Kein Symbol'}
+            </div>
+
+            <label>
               Name der Sammlung
 
               <input
@@ -8279,6 +9004,33 @@ function App() {
               <h2>
                 Sammlung bearbeiten
               </h2>
+
+              <label>
+                Symbol auswählen
+              </label>
+
+              {renderIconPicker(
+                editCollectionIcon,
+                setEditCollectionIcon,
+                editCollectionCustomEmoji,
+                setEditCollectionCustomEmoji,
+              )}
+
+              <div
+                style={{
+                  textAlign:
+                    'center',
+                  fontSize:
+                    editCollectionIcon
+                      ? '3rem'
+                      : '1rem',
+                  margin:
+                    '8px 0 18px',
+                }}
+              >
+                {editCollectionIcon ||
+                  'Kein Symbol'}
+              </div>
 
               <label>
                 Name der Sammlung

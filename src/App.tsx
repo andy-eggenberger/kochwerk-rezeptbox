@@ -37,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.7.1'
+const APP_VERSION = '0.7.2'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -4320,9 +4320,24 @@ function App() {
     }
 
     try {
+      let fetchUrl =
+        imageUrl
+
+      if (
+        /^https?:\/\//i.test(
+          imageUrl,
+        )
+      ) {
+        fetchUrl =
+          'https://kochwerk-import-worker.andy-kochwerk.workers.dev/image-proxy?url=' +
+          encodeURIComponent(
+            imageUrl,
+          )
+      }
+
       const response =
         await fetch(
-          imageUrl,
+          fetchUrl,
           {
             cache: 'no-store',
           },
@@ -4352,7 +4367,11 @@ function App() {
                 'webp',
               )
             ? 'webp'
-            : 'jpg'
+            : blob.type.includes(
+                  'gif',
+                )
+              ? 'gif'
+              : 'jpg'
 
       const safeTitle =
         recipe.title

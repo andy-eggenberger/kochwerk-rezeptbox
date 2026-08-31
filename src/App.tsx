@@ -39,7 +39,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.8.3'
+const APP_VERSION = '0.8.4'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -2633,6 +2633,10 @@ function App() {
                 text,
                 sourceName:
                   'facebook.com',
+                sourceUrl:
+                  sourceUrl ||
+                  importUrl ||
+                  '',
               }),
           },
         )
@@ -2694,6 +2698,128 @@ function App() {
     setImportLoading(false)
   }
 
+  function isFacebookImportLink(
+    value: string,
+  ) {
+    try {
+      const url =
+        new URL(
+          value.trim(),
+        )
+
+      const host =
+        url.hostname
+          .toLowerCase()
+
+      return (
+        host === 'facebook.com' ||
+        host.endsWith(
+          '.facebook.com',
+        ) ||
+        host === 'fb.watch' ||
+        host.endsWith(
+          '.fb.watch',
+        )
+      )
+    } catch {
+      return false
+    }
+  }
+
+  async function importFacebookLink(
+    value: string,
+  ) {
+    const cleanUrl =
+      value.trim()
+
+    try {
+      const response =
+        await fetch(
+          `https://kochwerk-import-worker.andy-kochwerk.workers.dev/import?url=${encodeURIComponent(
+            cleanUrl,
+          )}`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          },
+        )
+
+      const result =
+        await response.json() as {
+          success?: boolean
+          sourceUrl?: string
+          sourceName?: string
+          recipe?: ImportedRecipe & {
+            notes?: string
+          }
+          error?: string
+          requiresFacebookText?: boolean
+        }
+
+      if (
+        response.ok &&
+        result.success &&
+        result.recipe
+      ) {
+        setRecipePreview(
+          result.recipe,
+        )
+        setSourceUrl(
+          result.sourceUrl ??
+            cleanUrl,
+        )
+        setSourceName(
+          result.sourceName ??
+            'facebook.com',
+        )
+        setImportNotes(
+          result.recipe.notes ??
+            '',
+        )
+        setImportImageUrl(
+          result.recipe.image ??
+            '',
+        )
+        setImportMessage(
+          'Facebook-Rezept automatisch erkannt.',
+        )
+        return
+      }
+
+      setSourceUrl(
+        result.sourceUrl ??
+          cleanUrl,
+      )
+      setSourceName(
+        result.sourceName ??
+          'facebook.com',
+      )
+      setImportMode(
+        'facebookText',
+      )
+      setImportMessage(
+        'Facebook lässt diesen Beitrag nicht vollständig automatisch auslesen. Der Link ist bereits als Quelle gespeichert. Kopiere jetzt nur noch den Beitragstext und tippe auf „Facebook-Rezept auswerten“.',
+      )
+    } catch (error) {
+      console.error(
+        'Facebook-Linkimport fehlgeschlagen:',
+        error,
+      )
+      setSourceUrl(
+        cleanUrl,
+      )
+      setSourceName(
+        'facebook.com',
+      )
+      setImportMode(
+        'facebookText',
+      )
+      setImportMessage(
+        'Facebook konnte den direkten Zugriff nicht freigeben. Der Link bleibt als Quelle gespeichert. Kopiere den Beitragstext und füge ihn unten ein.',
+      )
+    }
+  }
+
   async function handleImport() {
     setImportLoading(true)
     setImportMessage('')
@@ -2704,6 +2830,18 @@ function App() {
     setImportCollectionIds([])
     setImportFavorite(false)
     setSaveStatus('idle')
+
+    if (
+      isFacebookImportLink(
+        importUrl,
+      )
+    ) {
+      await importFacebookLink(
+        importUrl,
+      )
+      setImportLoading(false)
+      return
+    }
 
     const result =
       await importRecipe(importUrl)
@@ -7769,15 +7907,17 @@ function App() {
                   setSaveStatus('idle')
                 }}
               >
-                Facebook-Text
+                Facebook-Hilfe
               </button>
             </div>
 
             {importMode === 'link' ? (
               <>
                 <p>
-                  Füge den Link zu einer
-                  Rezept-Webseite ein.
+                  Füge einen Rezept-Link ein.
+                  Kochwerk erkennt normale
+                  Webseiten und Facebook-Links
+                  automatisch.
                 </p>
 
                 <input
@@ -7832,9 +7972,12 @@ function App() {
             ) : (
               <>
                 <p>
-                  Kopiere bei Facebook den
-                  Rezepttext oder die Beschreibung
-                  und füge sie hier ein.
+                  Wenn Facebook den direkten
+                  Linkimport blockiert, kopiere
+                  nur den Beitragstext oder die
+                  Beschreibung. Der ursprüngliche
+                  Facebook-Link bleibt automatisch
+                  als Quelle erhalten.
                 </p>
 
                 <textarea

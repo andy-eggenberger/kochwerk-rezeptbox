@@ -28,8 +28,6 @@ type View =
   | 'collectionRecipes'
   | 'search'
 
-type SortMode = 'manual' | 'az' | 'za'
-
 type BackupData = {
   app: 'Kochwerk'
   backupVersion: 1
@@ -39,7 +37,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.8.3'
+const APP_VERSION = '0.7.0'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -119,107 +117,6 @@ const CATEGORY_ICONS = [
   '🥤',
   '🧃',
   '🥛',
-
-  // Anlässe / Sammlungen
-  '🎄',
-  '🐣',
-  '🔥',
-  '⚡',
-  '🍽️',
-  '🥂',
-  '🍟',
-  '❤️',
-  '⏳',
-  '🇨🇭',
-  '🇮🇹',
-  '🫙',
-  '🎉',
-  '🎁',
-  '🎃',
-  '🌞',
-  '🍂',
-  '❄️',
-
-  // Weitere praktische Kochwerk-Symbole
-  '🎂',
-  '🚗',
-  '🏕️',
-  '🌶️',
-  '🍷',
-  '🧀',
-  '🥓',
-  '🥞',
-  '🍔',
-  '🍕',
-  '🍓',
-  '☕',
-  '🍨',
-  '🍦',
-  '🥩',
-  '🐟',
-  '🍗',
-  '🥦',
-  '🥕',
-  '🌽',
-  '🍅',
-  '🥔',
-  '🧄',
-  '🧅',
-  '🥬',
-  '🍄',
-  '🥚',
-  '🥛',
-  '🧈',
-  '🥖',
-  '🥐',
-  '🥨',
-  '🍞',
-  '🧁',
-  '🍪',
-  '🍩',
-  '🍫',
-  '🍯',
-  '🥗',
-  '🥘',
-  '🍳',
-  '🍲',
-  '🍝',
-  '🍜',
-  '🍛',
-  '🍣',
-  '🌮',
-  '🌯',
-  '🥪',
-  '🍱',
-  '🫕',
-  '🫖',
-  '🧃',
-  '🍹',
-  '🍸',
-  '🍺',
-  '🥃',
-  '🍾',
-  '🧊',
-  '🌞',
-  '🌙',
-  '⭐',
-  '💡',
-  '📌',
-  '🧺',
-  '🛒',
-  '🏡',
-  '👨‍👩‍👧‍👦',
-  '👫',
-  '🎈',
-  '🎊',
-  '💐',
-  '🌷',
-  '🌸',
-  '🌻',
-  '🍀',
-  '🌿',
-  '🪴',
-  '🧺',
 ]
 
 function App() {
@@ -380,39 +277,6 @@ function App() {
     editCollectionDescription,
     setEditCollectionDescription,
   ] = useState('')
-
-
-  const [newCollectionIcon, setNewCollectionIcon] =
-    useState<string | undefined>('🗃️')
-
-  const [newCollectionCustomEmoji, setNewCollectionCustomEmoji] =
-    useState('')
-
-  const [editCollectionIcon, setEditCollectionIcon] =
-    useState<string | undefined>('🗃️')
-
-  const [editCollectionCustomEmoji, setEditCollectionCustomEmoji] =
-    useState('')
-
-  const [categorySortMode, setCategorySortMode] =
-    useState<SortMode>(() =>
-      (window.localStorage.getItem(
-        'kochwerkCategorySortMode',
-      ) as SortMode | null) ?? 'manual',
-    )
-
-  const [collectionSortMode, setCollectionSortMode] =
-    useState<SortMode>(() =>
-      (window.localStorage.getItem(
-        'kochwerkCollectionSortMode',
-      ) as SortMode | null) ?? 'manual',
-    )
-
-  const [draggedCategoryId, setDraggedCategoryId] =
-    useState<number | null>(null)
-
-  const [draggedCollectionId, setDraggedCollectionId] =
-    useState<number | null>(null)
 
   const [importUrl, setImportUrl] = useState('')
   const [importMessage, setImportMessage] = useState('')
@@ -679,9 +543,7 @@ function App() {
       )
       .map(
         (collection) =>
-          collection.icon
-            ? `${collection.icon} ${collection.name}`
-            : collection.name,
+          `🗃️ ${collection.name}`,
       )
   }
 
@@ -2633,6 +2495,10 @@ function App() {
                 text,
                 sourceName:
                   'facebook.com',
+                sourceUrl:
+                  sourceUrl ||
+                  importUrl ||
+                  '',
               }),
           },
         )
@@ -2694,6 +2560,135 @@ function App() {
     setImportLoading(false)
   }
 
+  function isFacebookImportLink(
+    value: string,
+  ) {
+    try {
+      const url =
+        new URL(
+          value.trim(),
+        )
+
+      const host =
+        url.hostname
+          .toLowerCase()
+
+      return (
+        host === 'facebook.com' ||
+        host.endsWith(
+          '.facebook.com',
+        ) ||
+        host === 'fb.watch' ||
+        host.endsWith(
+          '.fb.watch',
+        )
+      )
+    } catch {
+      return false
+    }
+  }
+
+  async function importFacebookLink(
+    value: string,
+  ) {
+    const cleanUrl =
+      value.trim()
+
+    try {
+      const response =
+        await fetch(
+          `https://kochwerk-import-worker.andy-kochwerk.workers.dev/import?url=${encodeURIComponent(
+            cleanUrl,
+          )}`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          },
+        )
+
+      const result =
+        await response.json() as {
+          success?: boolean
+          sourceUrl?: string
+          sourceName?: string
+          recipe?: ImportedRecipe & {
+            notes?: string
+          }
+          error?: string
+          requiresFacebookText?: boolean
+        }
+
+      if (
+        response.ok &&
+        result.success &&
+        result.recipe
+      ) {
+        setRecipePreview(
+          result.recipe,
+        )
+        setSourceUrl(
+          result.sourceUrl ??
+            cleanUrl,
+        )
+        setSourceName(
+          result.sourceName ??
+            'facebook.com',
+        )
+        setImportNotes(
+          result.recipe.notes ??
+            '',
+        )
+        setImportImageUrl(
+          result.recipe.image ??
+            '',
+        )
+        setImportMessage(
+          'Facebook-Rezept automatisch erkannt.',
+        )
+        return true
+      }
+
+      setSourceUrl(
+        result.sourceUrl ??
+          cleanUrl,
+      )
+      setSourceName(
+        result.sourceName ??
+          'facebook.com',
+      )
+
+      setImportMode(
+        'facebookText',
+      )
+
+      setImportMessage(
+        'Facebook lässt diesen Beitrag nicht vollständig automatisch auslesen. Der Link ist bereits als Quelle gespeichert. Kopiere jetzt nur noch den Beitragstext und tippe auf „Facebook-Rezept auswerten“.',
+      )
+
+      return false
+    } catch (error) {
+      console.error(
+        'Facebook-Linkimport fehlgeschlagen:',
+        error,
+      )
+
+      setSourceUrl(
+        cleanUrl,
+      )
+      setSourceName(
+        'facebook.com',
+      )
+      setImportMode(
+        'facebookText',
+      )
+      setImportMessage(
+        'Facebook konnte den direkten Zugriff nicht freigeben. Der Link bleibt als Quelle gespeichert. Kopiere den Beitragstext und füge ihn unten ein.',
+      )
+
+      return false
+    }
+  }
+
   async function handleImport() {
     setImportLoading(true)
     setImportMessage('')
@@ -2704,6 +2699,18 @@ function App() {
     setImportCollectionIds([])
     setImportFavorite(false)
     setSaveStatus('idle')
+
+    if (
+      isFacebookImportLink(
+        importUrl,
+      )
+    ) {
+      await importFacebookLink(
+        importUrl,
+      )
+      setImportLoading(false)
+      return
+    }
 
     const result =
       await importRecipe(importUrl)
@@ -3348,352 +3355,6 @@ function App() {
     )
   }
 
-  function sortedCategoriesForDisplay() {
-    const items =
-      [...categories]
-
-    if (categorySortMode === 'az') {
-      return items.sort((a, b) =>
-        a.name.localeCompare(
-          b.name,
-          'de',
-          {
-            sensitivity:
-              'base',
-          },
-        ),
-      )
-    }
-
-    if (categorySortMode === 'za') {
-      return items.sort((a, b) =>
-        b.name.localeCompare(
-          a.name,
-          'de',
-          {
-            sensitivity:
-              'base',
-          },
-        ),
-      )
-    }
-
-    return items.sort(
-      (a, b) =>
-        a.sortOrder -
-        b.sortOrder,
-    )
-  }
-
-  function sortedCollectionsForDisplay() {
-    const items =
-      [...collections]
-
-    if (collectionSortMode === 'az') {
-      return items.sort((a, b) =>
-        a.name.localeCompare(
-          b.name,
-          'de',
-          {
-            sensitivity:
-              'base',
-          },
-        ),
-      )
-    }
-
-    if (collectionSortMode === 'za') {
-      return items.sort((a, b) =>
-        b.name.localeCompare(
-          a.name,
-          'de',
-          {
-            sensitivity:
-              'base',
-          },
-        ),
-      )
-    }
-
-    return items.sort(
-      (a, b) =>
-        a.sortOrder -
-        b.sortOrder,
-    )
-  }
-
-  function changeCategorySortMode(
-    mode: SortMode,
-  ) {
-    setCategorySortMode(mode)
-
-    window.localStorage.setItem(
-      'kochwerkCategorySortMode',
-      mode,
-    )
-  }
-
-  function changeCollectionSortMode(
-    mode: SortMode,
-  ) {
-    setCollectionSortMode(mode)
-
-    window.localStorage.setItem(
-      'kochwerkCollectionSortMode',
-      mode,
-    )
-  }
-
-  async function saveCategoryOrder(
-    ordered: Category[],
-  ) {
-    await db.transaction(
-      'rw',
-      db.categories,
-      async () => {
-        for (
-          let index = 0;
-          index < ordered.length;
-          index++
-        ) {
-          const item =
-            ordered[index]
-
-          if (!item.id) continue
-
-          await db.categories.update(
-            item.id,
-            {
-              sortOrder:
-                index,
-            },
-          )
-        }
-      },
-    )
-
-    await loadCategories()
-  }
-
-  async function saveCollectionOrder(
-    ordered: Collection[],
-  ) {
-    await db.transaction(
-      'rw',
-      db.collections,
-      async () => {
-        for (
-          let index = 0;
-          index < ordered.length;
-          index++
-        ) {
-          const item =
-            ordered[index]
-
-          if (!item.id) continue
-
-          await db.collections.update(
-            item.id,
-            {
-              sortOrder:
-                index,
-            },
-          )
-        }
-      },
-    )
-
-    await loadCollections()
-  }
-
-  async function moveCategoryTo(
-    sourceId: number,
-    targetId: number,
-  ) {
-    if (
-      sourceId === targetId ||
-      categorySortMode !==
-        'manual'
-    ) {
-      return
-    }
-
-    const ordered =
-      sortedCategoriesForDisplay()
-
-    const sourceIndex =
-      ordered.findIndex(
-        (item) =>
-          item.id === sourceId,
-      )
-
-    const targetIndex =
-      ordered.findIndex(
-        (item) =>
-          item.id === targetId,
-      )
-
-    if (
-      sourceIndex < 0 ||
-      targetIndex < 0
-    ) {
-      return
-    }
-
-    const [moved] =
-      ordered.splice(
-        sourceIndex,
-        1,
-      )
-
-    ordered.splice(
-      targetIndex,
-      0,
-      moved,
-    )
-
-    await saveCategoryOrder(
-      ordered,
-    )
-  }
-
-  async function moveCollectionTo(
-    sourceId: number,
-    targetId: number,
-  ) {
-    if (
-      sourceId === targetId ||
-      collectionSortMode !==
-        'manual'
-    ) {
-      return
-    }
-
-    const ordered =
-      sortedCollectionsForDisplay()
-
-    const sourceIndex =
-      ordered.findIndex(
-        (item) =>
-          item.id === sourceId,
-      )
-
-    const targetIndex =
-      ordered.findIndex(
-        (item) =>
-          item.id === targetId,
-      )
-
-    if (
-      sourceIndex < 0 ||
-      targetIndex < 0
-    ) {
-      return
-    }
-
-    const [moved] =
-      ordered.splice(
-        sourceIndex,
-        1,
-      )
-
-    ordered.splice(
-      targetIndex,
-      0,
-      moved,
-    )
-
-    await saveCollectionOrder(
-      ordered,
-    )
-  }
-
-  async function moveCategoryByOffset(
-    categoryId: number,
-    offset: number,
-  ) {
-    const ordered =
-      sortedCategoriesForDisplay()
-
-    const currentIndex =
-      ordered.findIndex(
-        (item) =>
-          item.id === categoryId,
-      )
-
-    const nextIndex =
-      currentIndex +
-      offset
-
-    if (
-      currentIndex < 0 ||
-      nextIndex < 0 ||
-      nextIndex >=
-        ordered.length
-    ) {
-      return
-    }
-
-    const [moved] =
-      ordered.splice(
-        currentIndex,
-        1,
-      )
-
-    ordered.splice(
-      nextIndex,
-      0,
-      moved,
-    )
-
-    await saveCategoryOrder(
-      ordered,
-    )
-  }
-
-  async function moveCollectionByOffset(
-    collectionId: number,
-    offset: number,
-  ) {
-    const ordered =
-      sortedCollectionsForDisplay()
-
-    const currentIndex =
-      ordered.findIndex(
-        (item) =>
-          item.id === collectionId,
-      )
-
-    const nextIndex =
-      currentIndex +
-      offset
-
-    if (
-      currentIndex < 0 ||
-      nextIndex < 0 ||
-      nextIndex >=
-        ordered.length
-    ) {
-      return
-    }
-
-    const [moved] =
-      ordered.splice(
-        currentIndex,
-        1,
-      )
-
-    ordered.splice(
-      nextIndex,
-      0,
-      moved,
-    )
-
-    await saveCollectionOrder(
-      ordered,
-    )
-  }
-
   function openNewCategory() {
     setNewCategoryName('')
     setNewCategoryIcon('🍽️')
@@ -3868,8 +3529,6 @@ function App() {
   function openNewCollection() {
     setNewCollectionName('')
     setNewCollectionDescription('')
-    setNewCollectionIcon('🗃️')
-    setNewCollectionCustomEmoji('')
 
     setShowNewCollection(true)
   }
@@ -3906,9 +3565,6 @@ function App() {
       description:
         newCollectionDescription.trim() ||
         undefined,
-
-      icon:
-        newCollectionIcon,
 
       sortOrder:
         collections.length,
@@ -3947,13 +3603,6 @@ function App() {
         '',
     )
 
-    setEditCollectionIcon(
-      collection.icon ??
-        '🗃️',
-    )
-
-    setEditCollectionCustomEmoji('')
-
     setShowEditCollection(true)
   }
 
@@ -3982,9 +3631,6 @@ function App() {
         description:
           editCollectionDescription.trim() ||
           undefined,
-
-        icon:
-          editCollectionIcon,
       },
     )
 
@@ -3996,9 +3642,6 @@ function App() {
       description:
         editCollectionDescription.trim() ||
         undefined,
-
-      icon:
-        editCollectionIcon,
     })
 
     setShowEditCollection(false)
@@ -4707,292 +4350,6 @@ function App() {
     window.print()
   }
 
-  function buildShareText(
-    recipe: Recipe,
-  ) {
-    const ingredients =
-      printableIngredients(recipe)
-
-    const preparation =
-      printablePreparation(recipe)
-
-    const notes =
-      printableNotes(recipe)
-
-    const lines: string[] = [
-      recipe.title,
-      '',
-    ]
-
-    if (recipe.servingsLabel) {
-      lines.push(
-        `Portionen: ${recipe.servingsLabel}`,
-      )
-    }
-
-    if (recipe.totalTimeMinutes) {
-      lines.push(
-        `Zeit: ${recipe.totalTimeMinutes} Min.`,
-      )
-    }
-
-    const categories =
-      categoryNameList(recipe)
-
-    if (categories.length > 0) {
-      lines.push(
-        `Kategorie: ${categories.join(', ')}`,
-      )
-    }
-
-    if (
-      recipe.servingsLabel ||
-      recipe.totalTimeMinutes ||
-      categories.length > 0
-    ) {
-      lines.push('')
-    }
-
-    lines.push('ZUTATEN')
-
-    if (ingredients.length > 0) {
-      ingredients.forEach(
-        (ingredient) => {
-          lines.push(
-            `• ${ingredient.name}`,
-          )
-        },
-      )
-    } else {
-      lines.push(
-        'Keine Zutaten gespeichert.',
-      )
-    }
-
-    lines.push('', 'ZUBEREITUNG')
-
-    if (preparation.length > 0) {
-      preparation.forEach(
-        (step, index) => {
-          lines.push(
-            `${index + 1}. ${step}`,
-          )
-        },
-      )
-    } else {
-      lines.push(
-        'Keine Zubereitung gespeichert.',
-      )
-    }
-
-    if (notes) {
-      lines.push(
-        '',
-        'NOTIZEN / TIPPS',
-        notes,
-      )
-    }
-
-    const sourceLabel =
-      printSourceLabel(recipe)
-
-    if (sourceLabel) {
-      lines.push(
-        '',
-        `Quelle: ${sourceLabel}`,
-      )
-    }
-
-    lines.push(
-      '',
-      'Geteilt aus Kochwerk – meine Rezeptbox',
-    )
-
-    return lines.join('\n')
-  }
-
-  async function getRecipeShareImageFile(
-    recipe: Recipe,
-  ): Promise<File | null> {
-    const imageUrl =
-      recipe.sourceImageUrl?.trim()
-
-    if (!imageUrl) {
-      return null
-    }
-
-    try {
-      let fetchUrl =
-        imageUrl
-
-      if (
-        /^https?:\/\//i.test(
-          imageUrl,
-        )
-      ) {
-        fetchUrl =
-          'https://kochwerk-import-worker.andy-kochwerk.workers.dev/image-proxy?url=' +
-          encodeURIComponent(
-            imageUrl,
-          )
-      }
-
-      const response =
-        await fetch(
-          fetchUrl,
-          {
-            cache: 'no-store',
-          },
-        )
-
-      if (!response.ok) {
-        return null
-      }
-
-      const blob =
-        await response.blob()
-
-      if (
-        !blob.type.startsWith(
-          'image/',
-        )
-      ) {
-        return null
-      }
-
-      const extension =
-        blob.type.includes(
-          'png',
-        )
-          ? 'png'
-          : blob.type.includes(
-                'webp',
-              )
-            ? 'webp'
-            : blob.type.includes(
-                  'gif',
-                )
-              ? 'gif'
-              : 'jpg'
-
-      const safeTitle =
-        recipe.title
-          .trim()
-          .replace(
-            /[^a-zA-Z0-9äöüÄÖÜß_-]+/g,
-            '-',
-          )
-          .replace(
-            /^-+|-+$/g,
-            '',
-          )
-          .slice(
-            0,
-            60,
-          ) ||
-        'kochwerk-rezept'
-
-      return new File(
-        [
-          blob,
-        ],
-        `${safeTitle}.${extension}`,
-        {
-          type:
-            blob.type ||
-            'image/jpeg',
-        },
-      )
-    } catch (error) {
-      console.warn(
-        'Rezeptbild konnte für Teilen nicht geladen werden:',
-        error,
-      )
-
-      return null
-    }
-  }
-
-  async function shareCurrentRecipe() {
-    if (!selectedRecipe) return
-
-    const shareText =
-      buildShareText(
-        selectedRecipe,
-      )
-
-    try {
-      if (navigator.share) {
-        const imageFile =
-          await getRecipeShareImageFile(
-            selectedRecipe,
-          )
-
-        if (
-          imageFile &&
-          navigator.canShare?.({
-            files: [
-              imageFile,
-            ],
-          })
-        ) {
-          await navigator.share({
-            title:
-              selectedRecipe.title,
-            text: shareText,
-            files: [
-              imageFile,
-            ],
-          })
-
-          return
-        }
-
-        await navigator.share({
-          title:
-            selectedRecipe.title,
-          text: shareText,
-        })
-
-        return
-      }
-
-      await navigator.clipboard.writeText(
-        shareText,
-      )
-
-      window.alert(
-        'Rezept wurde in die Zwischenablage kopiert.',
-      )
-    } catch (error) {
-      if (
-        error instanceof DOMException &&
-        error.name === 'AbortError'
-      ) {
-        return
-      }
-
-      console.error(
-        'Rezept teilen fehlgeschlagen:',
-        error,
-      )
-
-      try {
-        await navigator.clipboard.writeText(
-          shareText,
-        )
-
-        window.alert(
-          'Teilen war nicht verfügbar. Das Rezept wurde stattdessen in die Zwischenablage kopiert.',
-        )
-      } catch {
-        window.alert(
-          'Das Rezept konnte auf diesem Gerät nicht geteilt werden.',
-        )
-      }
-    }
-  }
-
 
   return (
     <div className="app">
@@ -5501,16 +4858,6 @@ function App() {
                   }
                 >
                   🖨️ Drucken / PDF
-                </button>
-
-                <button
-                  className="edit-button"
-                  type="button"
-                  onClick={
-                    shareCurrentRecipe
-                  }
-                >
-                  📤 Teilen
                 </button>
 
                 <button
@@ -6106,7 +5453,7 @@ function App() {
                       Alle Kategorien
                     </option>
 
-                    {sortedCategoriesForDisplay().map(
+                    {categories.map(
                       (category) =>
                         category.id ? (
                           <option
@@ -6149,7 +5496,7 @@ function App() {
                       Alle Sammlungen
                     </option>
 
-                    {sortedCollectionsForDisplay().map(
+                    {collections.map(
                       (collection) =>
                         collection.id ? (
                           <option
@@ -6301,71 +5648,6 @@ function App() {
               ＋ Neue Kategorie
             </button>
 
-            <div
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems:
-                  'center',
-                gap: '10px',
-                marginBottom:
-                  '18px',
-                padding:
-                  '12px 14px',
-                background:
-                  '#faf8f5',
-                border:
-                  '1px solid #e4ded6',
-                borderRadius:
-                  '12px',
-              }}
-            >
-              <strong>
-                Sortierung:
-              </strong>
-
-              <select
-                value={
-                  categorySortMode
-                }
-                onChange={(event) =>
-                  changeCategorySortMode(
-                    event.target
-                      .value as SortMode,
-                  )
-                }
-                style={{
-                  minWidth:
-                    '170px',
-                }}
-              >
-                <option value="manual">
-                  ↕ Manuell
-                </option>
-                <option value="az">
-                  A–Z
-                </option>
-                <option value="za">
-                  Z–A
-                </option>
-              </select>
-
-              {categorySortMode ===
-                'manual' && (
-                <span
-                  style={{
-                    color:
-                      '#706a62',
-                    fontSize:
-                      '0.9rem',
-                  }}
-                >
-                  Karten ziehen oder mit
-                  ◀ ▶ verschieben.
-                </span>
-              )}
-            </div>
-
             {categories.length ===
             0 ? (
               <div className="empty-recipes">
@@ -6373,7 +5655,7 @@ function App() {
               </div>
             ) : (
               <div className="recipe-grid">
-                {sortedCategoriesForDisplay().map(
+                {categories.map(
                   (category) => {
                     const count =
                       category.id
@@ -6395,44 +5677,6 @@ function App() {
                         className="recipe-card"
                         key={
                           category.id
-                        }
-                        draggable={
-                          categorySortMode ===
-                          'manual'
-                        }
-                        onDragStart={() =>
-                          category.id &&
-                          setDraggedCategoryId(
-                            category.id,
-                          )
-                        }
-                        onDragOver={(event) => {
-                          if (
-                            categorySortMode ===
-                            'manual'
-                          ) {
-                            event.preventDefault()
-                          }
-                        }}
-                        onDrop={() => {
-                          if (
-                            draggedCategoryId &&
-                            category.id
-                          ) {
-                            void moveCategoryTo(
-                              draggedCategoryId,
-                              category.id,
-                            )
-                          }
-
-                          setDraggedCategoryId(
-                            null,
-                          )
-                        }}
-                        onDragEnd={() =>
-                          setDraggedCategoryId(
-                            null,
-                          )
                         }
                         style={{
                           width:
@@ -6490,51 +5734,6 @@ function App() {
                             </p>
                           </div>
                         </button>
-
-                        {categorySortMode ===
-                          'manual' &&
-                          category.id && (
-                            <div
-                              style={{
-                                display:
-                                  'grid',
-                                gridTemplateColumns:
-                                  '1fr 1fr',
-                                gap:
-                                  '8px',
-                                padding:
-                                  '0 14px 8px',
-                              }}
-                            >
-                              <button
-                                className="back-button"
-                                type="button"
-                                onClick={() =>
-                                  void moveCategoryByOffset(
-                                    category.id!,
-                                    -1,
-                                  )
-                                }
-                                title="Nach links / vorne"
-                              >
-                                ◀
-                              </button>
-
-                              <button
-                                className="back-button"
-                                type="button"
-                                onClick={() =>
-                                  void moveCategoryByOffset(
-                                    category.id!,
-                                    1,
-                                  )
-                                }
-                                title="Nach rechts / hinten"
-                              >
-                                ▶
-                              </button>
-                            </div>
-                          )}
 
                         <div
                           style={{
@@ -6662,71 +5861,6 @@ function App() {
               ＋ Neue Sammlung
             </button>
 
-            <div
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems:
-                  'center',
-                gap: '10px',
-                marginBottom:
-                  '18px',
-                padding:
-                  '12px 14px',
-                background:
-                  '#faf8f5',
-                border:
-                  '1px solid #e4ded6',
-                borderRadius:
-                  '12px',
-              }}
-            >
-              <strong>
-                Sortierung:
-              </strong>
-
-              <select
-                value={
-                  collectionSortMode
-                }
-                onChange={(event) =>
-                  changeCollectionSortMode(
-                    event.target
-                      .value as SortMode,
-                  )
-                }
-                style={{
-                  minWidth:
-                    '170px',
-                }}
-              >
-                <option value="manual">
-                  ↕ Manuell
-                </option>
-                <option value="az">
-                  A–Z
-                </option>
-                <option value="za">
-                  Z–A
-                </option>
-              </select>
-
-              {collectionSortMode ===
-                'manual' && (
-                <span
-                  style={{
-                    color:
-                      '#706a62',
-                    fontSize:
-                      '0.9rem',
-                  }}
-                >
-                  Karten ziehen oder mit
-                  ◀ ▶ verschieben.
-                </span>
-              )}
-            </div>
-
             {collections.length ===
             0 ? (
               <div className="empty-recipes">
@@ -6734,7 +5868,7 @@ function App() {
               </div>
             ) : (
               <div className="recipe-grid">
-                {sortedCollectionsForDisplay().map(
+                {collections.map(
                   (collection) => {
                     const count =
                       collection.id
@@ -6756,44 +5890,6 @@ function App() {
                         className="recipe-card"
                         key={
                           collection.id
-                        }
-                        draggable={
-                          collectionSortMode ===
-                          'manual'
-                        }
-                        onDragStart={() =>
-                          collection.id &&
-                          setDraggedCollectionId(
-                            collection.id,
-                          )
-                        }
-                        onDragOver={(event) => {
-                          if (
-                            collectionSortMode ===
-                            'manual'
-                          ) {
-                            event.preventDefault()
-                          }
-                        }}
-                        onDrop={() => {
-                          if (
-                            draggedCollectionId &&
-                            collection.id
-                          ) {
-                            void moveCollectionTo(
-                              draggedCollectionId,
-                              collection.id,
-                            )
-                          }
-
-                          setDraggedCollectionId(
-                            null,
-                          )
-                        }}
-                        onDragEnd={() =>
-                          setDraggedCollectionId(
-                            null,
-                          )
                         }
                         style={{
                           width:
@@ -6826,8 +5922,7 @@ function App() {
                                 '2.05rem',
                             }}
                           >
-                            {collection.icon ||
-                              '🗃️'}
+                            🗃️
                           </div>
 
                           <div
@@ -6881,51 +5976,6 @@ function App() {
                             </p>
                           </div>
                         </button>
-
-                        {collectionSortMode ===
-                          'manual' &&
-                          collection.id && (
-                            <div
-                              style={{
-                                display:
-                                  'grid',
-                                gridTemplateColumns:
-                                  '1fr 1fr',
-                                gap:
-                                  '8px',
-                                padding:
-                                  '0 14px 8px',
-                              }}
-                            >
-                              <button
-                                className="back-button"
-                                type="button"
-                                onClick={() =>
-                                  void moveCollectionByOffset(
-                                    collection.id!,
-                                    -1,
-                                  )
-                                }
-                                title="Nach links / vorne"
-                              >
-                                ◀
-                              </button>
-
-                              <button
-                                className="back-button"
-                                type="button"
-                                onClick={() =>
-                                  void moveCollectionByOffset(
-                                    collection.id!,
-                                    1,
-                                  )
-                                }
-                                title="Nach rechts / hinten"
-                              >
-                                ▶
-                              </button>
-                            </div>
-                          )}
 
                         <div
                           style={{
@@ -7769,15 +6819,17 @@ function App() {
                   setSaveStatus('idle')
                 }}
               >
-                Facebook-Text
+                Facebook-Hilfe
               </button>
             </div>
 
             {importMode === 'link' ? (
               <>
                 <p>
-                  Füge den Link zu einer
-                  Rezept-Webseite ein.
+                  Füge einen Rezept-Link ein.
+                  Kochwerk erkennt normale
+                  Webseiten und Facebook-Links
+                  automatisch.
                 </p>
 
                 <input
@@ -7832,9 +6884,12 @@ function App() {
             ) : (
               <>
                 <p>
-                  Kopiere bei Facebook den
-                  Rezepttext oder die Beschreibung
-                  und füge sie hier ein.
+                  Wenn Facebook den direkten
+                  Linkimport blockiert, kopiere
+                  nur den Beitragstext oder die
+                  Beschreibung. Der ursprüngliche
+                  Facebook-Link bleibt automatisch
+                  als Quelle erhalten.
                 </p>
 
                 <textarea
@@ -8992,33 +8047,6 @@ function App() {
             </h2>
 
             <label>
-              Symbol auswählen
-            </label>
-
-            {renderIconPicker(
-              newCollectionIcon,
-              setNewCollectionIcon,
-              newCollectionCustomEmoji,
-              setNewCollectionCustomEmoji,
-            )}
-
-            <div
-              style={{
-                textAlign:
-                  'center',
-                fontSize:
-                  newCollectionIcon
-                    ? '3rem'
-                    : '1rem',
-                margin:
-                  '8px 0 18px',
-              }}
-            >
-              {newCollectionIcon ||
-                'Kein Symbol'}
-            </div>
-
-            <label>
               Name der Sammlung
 
               <input
@@ -9105,33 +8133,6 @@ function App() {
               <h2>
                 Sammlung bearbeiten
               </h2>
-
-              <label>
-                Symbol auswählen
-              </label>
-
-              {renderIconPicker(
-                editCollectionIcon,
-                setEditCollectionIcon,
-                editCollectionCustomEmoji,
-                setEditCollectionCustomEmoji,
-              )}
-
-              <div
-                style={{
-                  textAlign:
-                    'center',
-                  fontSize:
-                    editCollectionIcon
-                      ? '3rem'
-                      : '1rem',
-                  margin:
-                    '8px 0 18px',
-                }}
-              >
-                {editCollectionIcon ||
-                  'Kein Symbol'}
-              </div>
 
               <label>
                 Name der Sammlung

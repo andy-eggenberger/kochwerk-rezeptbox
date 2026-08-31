@@ -39,7 +39,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.8.4'
+const APP_VERSION = '0.8.5'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -4219,9 +4219,22 @@ function App() {
       )
     }
 
+    const sortedCategories =
+      [...categories].sort(
+        (a, b) =>
+          a.name.localeCompare(
+            b.name,
+            'de',
+            {
+              sensitivity:
+                'base',
+            },
+          ),
+      )
+
     return (
       <div>
-        {categories.map(
+        {sortedCategories.map(
           (category) => {
             if (!category.id)
               return null
@@ -4255,10 +4268,25 @@ function App() {
                   }}
                 />
 
+                {category.icon && (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      fontSize:
+                        '1.45rem',
+                      lineHeight: 1,
+                      minWidth:
+                        '1.7rem',
+                      textAlign:
+                        'center',
+                    }}
+                  >
+                    {category.icon}
+                  </span>
+                )}
+
                 <span>
-                  {categoryDisplay(
-                    category,
-                  )}
+                  {category.name}
                 </span>
               </label>
             )
@@ -4282,9 +4310,22 @@ function App() {
       )
     }
 
+    const sortedCollections =
+      [...collections].sort(
+        (a, b) =>
+          a.name.localeCompare(
+            b.name,
+            'de',
+            {
+              sensitivity:
+                'base',
+            },
+          ),
+      )
+
     return (
       <div>
-        {collections.map(
+        {sortedCollections.map(
           (collection) => {
             if (!collection.id)
               return null
@@ -4320,11 +4361,24 @@ function App() {
                   }}
                 />
 
+                <span
+                  aria-hidden="true"
+                  style={{
+                    fontSize:
+                      '1.45rem',
+                    lineHeight: 1,
+                    minWidth:
+                      '1.7rem',
+                    textAlign:
+                      'center',
+                  }}
+                >
+                  {collection.icon ||
+                    '🗃️'}
+                </span>
+
                 <span>
-                  🗃️{' '}
-                  {
-                    collection.name
-                  }
+                  {collection.name}
                 </span>
               </label>
             )

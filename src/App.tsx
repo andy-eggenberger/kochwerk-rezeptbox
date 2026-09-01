@@ -39,7 +39,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.8.5'
+const APP_VERSION = '0.9.0'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -325,10 +325,12 @@ function App() {
   const [editNotes, setEditNotes] = useState('')
   const [editSourceUrl, setEditSourceUrl] = useState('')
   const [editSourceName, setEditSourceName] = useState('')
+  const [editVideoUrl, setEditVideoUrl] = useState('')
   const [editImageUrl, setEditImageUrl] = useState('')
   const [editFavorite, setEditFavorite] = useState(false)
 
   const [newTitle, setNewTitle] = useState('')
+  const [newVideoUrl, setNewVideoUrl] = useState('')
   const [newServings, setNewServings] = useState('')
   const [newTime, setNewTime] = useState('')
 
@@ -418,9 +420,15 @@ function App() {
   const [importMessage, setImportMessage] = useState('')
 
   const [importMode, setImportMode] =
-    useState<'link' | 'facebookText'>('link')
+    useState<'link' | 'facebookText' | 'video'>('link')
 
   const [facebookText, setFacebookText] =
+    useState('')
+
+  const [importVideoUrl, setImportVideoUrl] =
+    useState('')
+
+  const [importVideoTitle, setImportVideoTitle] =
     useState('')
 
   const [importNotes, setImportNotes] =
@@ -2698,6 +2706,63 @@ function App() {
     setImportLoading(false)
   }
 
+  function isFacebookVideoLink(
+    value: string,
+  ) {
+    try {
+      const url =
+        new URL(
+          value.trim(),
+        )
+
+      const host =
+        url.hostname
+          .toLowerCase()
+
+      const isFacebook =
+        host === 'facebook.com' ||
+        host.endsWith(
+          '.facebook.com',
+        ) ||
+        host === 'fb.watch' ||
+        host.endsWith(
+          '.fb.watch',
+        )
+
+      if (!isFacebook) {
+        return false
+      }
+
+      const path =
+        url.pathname
+          .toLowerCase()
+
+      return (
+        host === 'fb.watch' ||
+        host.endsWith(
+          '.fb.watch',
+        ) ||
+        path.includes(
+          '/reel/',
+        ) ||
+        path.includes(
+          '/reels/',
+        ) ||
+        path.includes(
+          '/watch/',
+        ) ||
+        path.includes(
+          '/videos/',
+        ) ||
+        path.includes(
+          '/share/r/'
+        )
+      )
+    } catch {
+      return false
+    }
+  }
+
   function isFacebookImportLink(
     value: string,
   ) {
@@ -2832,6 +2897,34 @@ function App() {
     setSaveStatus('idle')
 
     if (
+      isFacebookVideoLink(
+        importUrl,
+      )
+    ) {
+      const cleanVideoUrl =
+        importUrl.trim()
+
+      setImportVideoUrl(
+        cleanVideoUrl,
+      )
+      setSourceUrl(
+        cleanVideoUrl,
+      )
+      setSourceName(
+        'facebook.com',
+      )
+      setImportMode(
+        'video',
+      )
+      setRecipePreview(null)
+      setImportMessage(
+        '🎬 Facebook-Video erkannt. Der Video-Link ist bereits übernommen. Ergänze jetzt Titel und Bild; Zutaten und Zubereitung kannst du später bei Bedarf ergänzen.',
+      )
+      setImportLoading(false)
+      return
+    }
+
+    if (
       isFacebookImportLink(
         importUrl,
       )
@@ -2872,6 +2965,61 @@ function App() {
     }
 
     setImportLoading(false)
+  }
+
+  function prepareVideoRecipe() {
+    const title =
+      importVideoTitle.trim()
+
+    const videoUrl =
+      importVideoUrl.trim()
+
+    if (!videoUrl) {
+      setImportMessage(
+        'Bitte zuerst den Video-Link einfügen.',
+      )
+      return
+    }
+
+    if (!title) {
+      setImportMessage(
+        'Bitte einen Rezepttitel eingeben.',
+      )
+      return
+    }
+
+    setSourceUrl(
+      videoUrl,
+    )
+
+    if (
+      !sourceName.trim()
+    ) {
+      setSourceName(
+        videoUrl.includes(
+          'facebook.com',
+        ) ||
+        videoUrl.includes(
+          'fb.watch',
+        )
+          ? 'facebook.com'
+          : 'Video-Rezept',
+      )
+    }
+
+    setRecipePreview({
+      title,
+      ingredients: [],
+      instructions: [],
+      image:
+        importImageUrl ||
+        undefined,
+    })
+
+    setImportMessage(
+      '🎬 Video-Rezept vorbereitet. Prüfe jetzt Kategorie, Sammlung, Favorit, Notizen und Bild und speichere danach das Rezept.',
+    )
+    setSaveStatus('idle')
   }
 
   async function saveImportedRecipe() {
@@ -2947,6 +3095,10 @@ function App() {
         sourceUrl,
         sourceName,
 
+        videoUrl:
+          importVideoUrl.trim() ||
+          undefined,
+
         sourceImageUrl:
           importImageUrl ||
           recipePreview.image,
@@ -2962,6 +3114,8 @@ function App() {
       setSaveStatus('saved')
       setImportUrl('')
       setFacebookText('')
+      setImportVideoUrl('')
+      setImportVideoTitle('')
 
       await loadRecipes()
     } catch (error) {
@@ -3134,6 +3288,11 @@ function App() {
         '',
     )
 
+    setEditVideoUrl(
+      selectedRecipe.videoUrl ??
+        '',
+    )
+
     setEditImageUrl(
       selectedRecipe.sourceImageUrl ??
         '',
@@ -3292,6 +3451,10 @@ function App() {
           editSourceName.trim() ||
           undefined,
 
+        videoUrl:
+          editVideoUrl.trim() ||
+          undefined,
+
         sourceImageUrl:
           editImageUrl.trim() ||
           undefined,
@@ -3320,6 +3483,7 @@ function App() {
 
   function openNewRecipe() {
     setNewTitle('')
+    setNewVideoUrl('')
     setNewServings('')
     setNewTime('')
     setNewIngredients('')
@@ -3390,6 +3554,10 @@ function App() {
           ) && parsedTime > 0
             ? parsedTime
             : undefined,
+
+        videoUrl:
+          newVideoUrl.trim() ||
+          undefined,
 
         imageIds: [],
 
@@ -4995,6 +5163,13 @@ function App() {
       )
     }
 
+    if (recipe.videoUrl?.trim()) {
+      lines.push(
+        '',
+        `Video: ${recipe.videoUrl.trim()}`,
+      )
+    }
+
     lines.push(
       '',
       'Geteilt aus Kochwerk – meine Rezeptbox',
@@ -5892,6 +6067,31 @@ function App() {
               </div>
             )}
 
+            {selectedRecipe.videoUrl && (
+              <div
+                style={{
+                  marginTop: '22px',
+                }}
+              >
+                <a
+                  href={
+                    selectedRecipe.videoUrl
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  className="primary"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    textDecoration: 'none',
+                  }}
+                >
+                  ▶️ Video ansehen
+                </a>
+              </div>
+            )}
+
             {selectedRecipe.sourceUrl && (
               <div className="recipe-detail-source">
                 Quelle:{' '}
@@ -6124,6 +6324,8 @@ function App() {
                   setImportMode('link')
                   setImportUrl('')
                   setFacebookText('')
+                  setImportVideoUrl('')
+                  setImportVideoTitle('')
                   setImportMessage('')
                   setRecipePreview(
                     null,
@@ -7919,7 +8121,7 @@ function App() {
               style={{
                 display: 'grid',
                 gridTemplateColumns:
-                  '1fr 1fr',
+                  '1fr 1fr 1fr',
                 gap: '10px',
                 marginBottom: '18px',
               }}
@@ -7962,6 +8164,35 @@ function App() {
                 }}
               >
                 Facebook-Hilfe
+              </button>
+
+              <button
+                className={
+                  importMode === 'video'
+                    ? 'primary'
+                    : 'secondary'
+                }
+                type="button"
+                onClick={() => {
+                  setImportMode(
+                    'video',
+                  )
+                  setImportMessage('')
+                  setRecipePreview(null)
+                  setImportNotes('')
+                  setSaveStatus('idle')
+
+                  if (
+                    importUrl.trim() &&
+                    !importVideoUrl.trim()
+                  ) {
+                    setImportVideoUrl(
+                      importUrl.trim(),
+                    )
+                  }
+                }}
+              >
+                🎬 Video
               </button>
             </div>
 
@@ -8023,7 +8254,7 @@ function App() {
                     : 'Rezept einlesen'}
                 </button>
               </>
-            ) : (
+            ) : importMode === 'facebookText' ? (
               <>
                 <p>
                   Wenn Facebook den direkten
@@ -8182,6 +8413,169 @@ function App() {
                   {importLoading
                     ? 'Facebook-Text wird ausgewertet …'
                     : 'Facebook-Rezept auswerten'}
+                </button>
+              </>
+            ) : (
+              <>
+                <p>
+                  Für Rezepte, bei denen Zutaten
+                  und Zubereitung hauptsächlich im
+                  Video erklärt werden. Kochwerk
+                  speichert den Video-Link direkt
+                  beim Rezept.
+                </p>
+
+                <label>
+                  Video-Link
+
+                  <input
+                    className="import-input"
+                    type="url"
+                    value={
+                      importVideoUrl
+                    }
+                    onChange={(event) => {
+                      const value =
+                        event.target.value
+
+                      setImportVideoUrl(
+                        value,
+                      )
+                      setSourceUrl(
+                        value,
+                      )
+                      setImportMessage('')
+                      setRecipePreview(null)
+                      setSaveStatus('idle')
+                    }}
+                    placeholder="https://www.facebook.com/share/r/..."
+                  />
+                </label>
+
+                <label>
+                  Rezepttitel
+
+                  <input
+                    value={
+                      importVideoTitle
+                    }
+                    onChange={(event) => {
+                      setImportVideoTitle(
+                        event.target.value,
+                      )
+                      setImportMessage('')
+                      setRecipePreview(null)
+                      setSaveStatus('idle')
+                    }}
+                    placeholder="z. B. Cremige Ofenkartoffeln"
+                  />
+                </label>
+
+                <label>
+                  Bild-Link (optional)
+
+                  <input
+                    type="url"
+                    value={
+                      importImageUrl
+                    }
+                    onChange={(event) =>
+                      setImportImageUrl(
+                        event.target.value,
+                      )
+                    }
+                    placeholder="https://..."
+                  />
+                </label>
+
+                <div
+                  onDrop={
+                    handleFacebookImageDrop
+                  }
+                  onDragOver={
+                    handleFacebookImageDragOver
+                  }
+                  style={{
+                    marginTop: '14px',
+                    padding: '16px',
+                    border:
+                      '2px dashed #b9b09f',
+                    borderRadius: '14px',
+                    background: '#faf8f5',
+                    textAlign: 'center',
+                  }}
+                >
+                  <strong>
+                    🖼️ Vorschaubild
+                  </strong>
+
+                  <p
+                    style={{
+                      margin:
+                        '8px 0 12px',
+                      color: '#706a62',
+                    }}
+                  >
+                    Bild auswählen, aus Firefox
+                    hineinziehen oder aus der
+                    Zwischenablage übernehmen.
+                  </p>
+
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={
+                      handleFacebookImageFile
+                    }
+                  />
+
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={
+                      pasteFacebookImageFromClipboard
+                    }
+                    style={{
+                      width: '100%',
+                      marginTop: '10px',
+                    }}
+                  >
+                    📋 Bild aus Zwischenablage übernehmen
+                  </button>
+
+                  {importImageUrl && (
+                    <img
+                      src={
+                        importImageUrl
+                      }
+                      alt="Video-Rezept"
+                      style={{
+                        width: '100%',
+                        maxHeight:
+                          '260px',
+                        objectFit:
+                          'cover',
+                        borderRadius:
+                          '12px',
+                        marginTop:
+                          '12px',
+                      }}
+                    />
+                  )}
+                </div>
+
+                <button
+                  className="import-button"
+                  type="button"
+                  disabled={
+                    !importVideoUrl.trim() ||
+                    !importVideoTitle.trim()
+                  }
+                  onClick={
+                    prepareVideoRecipe
+                  }
+                >
+                  🎬 Video-Rezept vorbereiten
                 </button>
               </>
             )}
@@ -8421,6 +8815,23 @@ function App() {
                     '',
                   )
                 }}
+              />
+            </label>
+
+            <label>
+              Video-Link (optional)
+
+              <input
+                type="url"
+                value={
+                  newVideoUrl
+                }
+                onChange={(event) =>
+                  setNewVideoUrl(
+                    event.target.value,
+                  )
+                }
+                placeholder="https://..."
               />
             </label>
 
@@ -8921,6 +9332,21 @@ function App() {
                         )
                       }
                       placeholder="https://..."
+                    />
+                  </label>
+
+                  <label>
+                    Video-Link
+
+                    <input
+                      type="url"
+                      value={editVideoUrl}
+                      onChange={(event) =>
+                        setEditVideoUrl(
+                          event.target.value,
+                        )
+                      }
+                      placeholder="https://www.facebook.com/..."
                     />
                   </label>
                 </section>

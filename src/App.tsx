@@ -39,7 +39,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.9.2'
+const APP_VERSION = '0.9.3'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -4939,6 +4939,35 @@ function App() {
                       {recipeCollections.join(
                         ' · ',
                       )}
+                    </p>
+                  )}
+
+                  {recipe.videoUrl && (
+                    <p
+                      style={{
+                        display:
+                          'inline-flex',
+                        alignItems:
+                          'center',
+                        gap: '5px',
+                        width:
+                          'fit-content',
+                        margin:
+                          '6px 0 2px',
+                        padding:
+                          '4px 8px',
+                        borderRadius:
+                          '999px',
+                        background:
+                          '#fff0ec',
+                        color:
+                          '#b9462f',
+                        fontSize:
+                          '0.82rem',
+                        fontWeight: 700,
+                      }}
+                    >
+                      🎬 Video-Rezept
                     </p>
                   )}
 

@@ -39,7 +39,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.9.1'
+const APP_VERSION = '0.9.2'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -430,6 +430,11 @@ function App() {
 
   const [importVideoTitle, setImportVideoTitle] =
     useState('')
+
+  const [
+    videoMetadataLoading,
+    setVideoMetadataLoading,
+  ] = useState(false)
 
   const [importNotes, setImportNotes] =
     useState('')
@@ -2918,8 +2923,14 @@ function App() {
       )
       setRecipePreview(null)
       setImportMessage(
-        '🎬 Facebook-Video erkannt. Der Video-Link ist bereits übernommen. Ergänze jetzt Titel und Bild; Zutaten und Zubereitung kannst du später bei Bedarf ergänzen.',
+        '🎬 Facebook-Video erkannt. Kochwerk sucht jetzt automatisch nach Titel und Vorschaubild.',
       )
+
+      await loadVideoMetadata(
+        cleanVideoUrl,
+        true,
+      )
+
       setImportLoading(false)
       return
     }
@@ -2965,6 +2976,128 @@ function App() {
     }
 
     setImportLoading(false)
+  }
+
+  async function loadVideoMetadata(
+    value: string,
+    automatic = false,
+  ) {
+    const cleanUrl =
+      value.trim()
+
+    if (!cleanUrl) {
+      if (!automatic) {
+        setImportMessage(
+          'Bitte zuerst den Video-Link einfügen.',
+        )
+      }
+      return
+    }
+
+    setVideoMetadataLoading(true)
+
+    try {
+      const response =
+        await fetch(
+          `https://kochwerk-import-worker.andy-kochwerk.workers.dev/video-meta?url=${encodeURIComponent(
+            cleanUrl,
+          )}`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          },
+        )
+
+      const result =
+        await response.json() as {
+          success?: boolean
+          sourceUrl?: string
+          sourceName?: string
+          videoMetadata?: {
+            title?: string
+            image?: string
+          }
+          error?: string
+        }
+
+      const foundTitle =
+        result.videoMetadata?.title?.trim() ??
+        ''
+
+      const foundImage =
+        result.videoMetadata?.image?.trim() ??
+        ''
+
+      if (result.sourceUrl) {
+        setSourceUrl(
+          result.sourceUrl,
+        )
+      }
+
+      if (result.sourceName) {
+        setSourceName(
+          result.sourceName,
+        )
+      }
+
+      if (
+        foundTitle &&
+        !importVideoTitle.trim()
+      ) {
+        setImportVideoTitle(
+          foundTitle,
+        )
+      }
+
+      if (
+        foundImage &&
+        !importImageUrl.trim()
+      ) {
+        setImportImageUrl(
+          foundImage,
+        )
+      }
+
+      if (
+        foundTitle ||
+        foundImage
+      ) {
+        const parts: string[] = []
+
+        if (foundTitle) {
+          parts.push(
+            'Titel',
+          )
+        }
+
+        if (foundImage) {
+          parts.push(
+            'Vorschaubild',
+          )
+        }
+
+        setImportMessage(
+          `✓ Automatisch gefunden: ${parts.join(
+            ' und ',
+          )}. Bitte kurz prüfen und bei Bedarf anpassen.`,
+        )
+      } else {
+        setImportMessage(
+          'Facebook stellt für dieses Video leider kein verwendbares Vorschaubild oder keinen Titel bereit. Du kannst Bild und Titel weiterhin einfach manuell übernehmen.',
+        )
+      }
+    } catch (error) {
+      console.error(
+        'Video-Metadaten konnten nicht geladen werden:',
+        error,
+      )
+
+      setImportMessage(
+        'Automatische Bild-/Titelsuche war bei diesem Facebook-Video nicht möglich. Die manuelle Übernahme bleibt verfügbar.',
+      )
+    } finally {
+      setVideoMetadataLoading(false)
+    }
   }
 
   function prepareVideoRecipe() {
@@ -6326,6 +6459,7 @@ function App() {
                   setFacebookText('')
                   setImportVideoUrl('')
                   setImportVideoTitle('')
+                  setVideoMetadataLoading(false)
                   setImportMessage('')
                   setRecipePreview(
                     null,
@@ -8427,8 +8561,9 @@ function App() {
                   Für Rezepte, bei denen Zutaten
                   und Zubereitung hauptsächlich im
                   Video erklärt werden. Kochwerk
-                  speichert den Video-Link direkt
-                  beim Rezept.
+                  speichert den Video-Link und
+                  versucht Titel und Vorschaubild
+                  automatisch zu übernehmen.
                 </p>
 
                 <div
@@ -8471,6 +8606,27 @@ function App() {
                       placeholder="https://www.facebook.com/share/r/..."
                     />
                   </label>
+
+                  <button
+                    className="secondary"
+                    type="button"
+                    disabled={
+                      videoMetadataLoading ||
+                      !importVideoUrl.trim()
+                    }
+                    onClick={() =>
+                      loadVideoMetadata(
+                        importVideoUrl,
+                      )
+                    }
+                    style={{
+                      width: '100%',
+                    }}
+                  >
+                    {videoMetadataLoading
+                      ? '⏳ Titel & Vorschaubild werden gesucht …'
+                      : '🔎 Titel & Vorschaubild automatisch suchen'}
+                  </button>
 
                   <label
                     style={{

@@ -39,7 +39,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.9.0'
+const APP_VERSION = '0.9.1'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -8417,7 +8417,13 @@ function App() {
               </>
             ) : (
               <>
-                <p>
+                <p
+                  style={{
+                    margin:
+                      '14px 0 0',
+                    lineHeight: 1.45,
+                  }}
+                >
                   Für Rezepte, bei denen Zutaten
                   und Zubereitung hauptsächlich im
                   Video erklärt werden. Kochwerk
@@ -8425,68 +8431,97 @@ function App() {
                   beim Rezept.
                 </p>
 
-                <label>
-                  Video-Link
-
-                  <input
-                    className="import-input"
-                    type="url"
-                    value={
-                      importVideoUrl
-                    }
-                    onChange={(event) => {
-                      const value =
-                        event.target.value
-
-                      setImportVideoUrl(
-                        value,
-                      )
-                      setSourceUrl(
-                        value,
-                      )
-                      setImportMessage('')
-                      setRecipePreview(null)
-                      setSaveStatus('idle')
+                <div
+                  style={{
+                    display: 'grid',
+                    gap: '14px',
+                    marginTop: '16px',
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'grid',
+                      gap: '7px',
                     }}
-                    placeholder="https://www.facebook.com/share/r/..."
-                  />
-                </label>
+                  >
+                    <strong>
+                      Video-Link
+                    </strong>
 
-                <label>
-                  Rezepttitel
+                    <input
+                      className="import-input"
+                      type="url"
+                      value={
+                        importVideoUrl
+                      }
+                      onChange={(event) => {
+                        const value =
+                          event.target.value
 
-                  <input
-                    value={
-                      importVideoTitle
-                    }
-                    onChange={(event) => {
-                      setImportVideoTitle(
-                        event.target.value,
-                      )
-                      setImportMessage('')
-                      setRecipePreview(null)
-                      setSaveStatus('idle')
+                        setImportVideoUrl(
+                          value,
+                        )
+                        setSourceUrl(
+                          value,
+                        )
+                        setImportMessage('')
+                        setRecipePreview(null)
+                        setSaveStatus('idle')
+                      }}
+                      placeholder="https://www.facebook.com/share/r/..."
+                    />
+                  </label>
+
+                  <label
+                    style={{
+                      display: 'grid',
+                      gap: '7px',
                     }}
-                    placeholder="z. B. Cremige Ofenkartoffeln"
-                  />
-                </label>
+                  >
+                    <strong>
+                      Rezepttitel
+                    </strong>
 
-                <label>
-                  Bild-Link (optional)
+                    <input
+                      value={
+                        importVideoTitle
+                      }
+                      onChange={(event) => {
+                        setImportVideoTitle(
+                          event.target.value,
+                        )
+                        setImportMessage('')
+                        setRecipePreview(null)
+                        setSaveStatus('idle')
+                      }}
+                      placeholder="z. B. Cremige Ofenkartoffeln"
+                    />
+                  </label>
 
-                  <input
-                    type="url"
-                    value={
-                      importImageUrl
-                    }
-                    onChange={(event) =>
-                      setImportImageUrl(
-                        event.target.value,
-                      )
-                    }
-                    placeholder="https://..."
-                  />
-                </label>
+                  <label
+                    style={{
+                      display: 'grid',
+                      gap: '7px',
+                    }}
+                  >
+                    <strong>
+                      Bild-Link (optional)
+                    </strong>
+
+                    <input
+                      type="url"
+                      value={
+                        importImageUrl
+                      }
+                      onChange={(event) =>
+                        setImportImageUrl(
+                          event.target.value,
+                        )
+                      }
+                      placeholder="https://..."
+                    />
+                  </label>
+                </div>
 
                 <div
                   onDrop={

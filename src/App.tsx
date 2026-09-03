@@ -5,6 +5,17 @@ import {
 } from 'react'
 
 import {
+  getDocument,
+  GlobalWorkerOptions,
+} from 'pdfjs-dist'
+
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+
+import {
+  createWorker,
+} from 'tesseract.js'
+
+import {
   importRecipe,
   type ImportedRecipe,
 } from './import/recipeImport'
@@ -17,6 +28,40 @@ import {
 } from './db/database'
 
 import './App.css'
+
+GlobalWorkerOptions.workerSrc =
+  pdfWorkerUrl
+
+type ScannedPage = {
+  id: string
+  label: string
+  dataUrl: string
+}
+
+type DocumentRegionKey =
+  | 'title'
+  | 'ingredients'
+  | 'instructions'
+  | 'notes'
+  | 'image'
+
+type DocumentRegion = {
+  id: string
+  pageId: string
+  kind: DocumentRegionKey
+  order: number
+  x: number
+  y: number
+  width: number
+  height: number
+  angle: number
+}
+
+type DocumentPageRotation =
+  | 0
+  | 90
+  | 180
+  | 270
 
 type View =
   | 'home'
@@ -39,7 +84,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.9.3'
+const APP_VERSION = '0.10.8'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -420,10 +465,113 @@ function App() {
   const [importMessage, setImportMessage] = useState('')
 
   const [importMode, setImportMode] =
-    useState<'link' | 'facebookText' | 'video'>('link')
+    useState<
+      'link' |
+      'facebookText' |
+      'document' |
+      'video'
+    >('link')
 
   const [facebookText, setFacebookText] =
     useState('')
+
+  const [
+    documentPages,
+    setDocumentPages,
+  ] = useState<ScannedPage[]>([])
+
+  const [
+    documentOcrText,
+    setDocumentOcrText,
+  ] = useState('')
+
+  const [
+    documentOcrLoading,
+    setDocumentOcrLoading,
+  ] = useState(false)
+
+  const [
+    documentOcrProgress,
+    setDocumentOcrProgress,
+  ] = useState('')
+
+  const [
+    documentSelectedImageId,
+    setDocumentSelectedImageId,
+  ] = useState<string | null>(null)
+
+  const [
+    documentTitleHint,
+    setDocumentTitleHint,
+  ] = useState('')
+
+  const [
+    documentAreaMode,
+    setDocumentAreaMode,
+  ] = useState(false)
+
+  const [
+    documentActiveRegion,
+    setDocumentActiveRegion,
+  ] = useState<DocumentRegionKey>(
+    'title',
+  )
+
+  const [
+    documentRegions,
+    setDocumentRegions,
+  ] = useState<
+    DocumentRegion[]
+  >([])
+
+  const [
+    documentPageRotations,
+    setDocumentPageRotations,
+  ] = useState<
+    Record<
+      string,
+      DocumentPageRotation
+    >
+  >({})
+
+  const [
+    documentActivePageId,
+    setDocumentActivePageId,
+  ] = useState<
+    string | null
+  >(null)
+
+  const [
+    documentDragStart,
+    setDocumentDragStart,
+  ] = useState<{
+    x: number
+    y: number
+  } | null>(null)
+
+  const [
+    documentDragCurrent,
+    setDocumentDragCurrent,
+  ] = useState<{
+    x: number
+    y: number
+  } | null>(null)
+
+  const [
+    documentRegionEdit,
+    setDocumentRegionEdit,
+  ] = useState<{
+    id: string
+    mode:
+      | 'move'
+      | 'nw'
+      | 'ne'
+      | 'sw'
+      | 'se'
+    startX: number
+    startY: number
+    original: DocumentRegion
+  } | null>(null)
 
   const [importVideoUrl, setImportVideoUrl] =
     useState('')
@@ -2612,6 +2760,2565 @@ function App() {
     }
   }
 
+
+  function readFileAsDataUrl(
+    file: Blob,
+  ) {
+    return new Promise<string>(
+      (resolve, reject) => {
+        const reader =
+          new FileReader()
+
+        reader.onload = () => {
+          if (
+            typeof reader.result ===
+            'string'
+          ) {
+            resolve(
+              reader.result,
+            )
+          } else {
+            reject(
+              new Error(
+                'Datei konnte nicht gelesen werden.',
+              ),
+            )
+          }
+        }
+
+        reader.onerror =
+          () =>
+            reject(
+              reader.error ??
+                new Error(
+                  'Datei konnte nicht gelesen werden.',
+                ),
+            )
+
+        reader.readAsDataURL(
+          file,
+        )
+      },
+    )
+  }
+
+  async function renderPdfFileToPages(
+    file: File,
+  ) {
+    const bytes =
+      new Uint8Array(
+        await file.arrayBuffer(),
+      )
+
+    const pdf =
+      await getDocument({
+        data: bytes,
+      }).promise
+
+    const pages: ScannedPage[] =
+      []
+
+    const maxPages =
+      Math.min(
+        pdf.numPages,
+        12,
+      )
+
+    for (
+      let pageNumber = 1;
+      pageNumber <= maxPages;
+      pageNumber += 1
+    ) {
+      setDocumentOcrProgress(
+        `PDF wird vorbereitet: Seite ${pageNumber} von ${maxPages} …`,
+      )
+
+      const page =
+        await pdf.getPage(
+          pageNumber,
+        )
+
+      const baseViewport =
+        page.getViewport({
+          scale: 1,
+        })
+
+      const maxWidth =
+        1800
+
+      const scale =
+        Math.min(
+          2,
+          Math.max(
+            1.2,
+            maxWidth /
+              baseViewport.width,
+          ),
+        )
+
+      const viewport =
+        page.getViewport({
+          scale,
+        })
+
+      const canvas =
+        document.createElement(
+          'canvas',
+        )
+
+      const context =
+        canvas.getContext(
+          '2d',
+          {
+            alpha: false,
+          },
+        )
+
+      if (!context) {
+        throw new Error(
+          'PDF-Seite konnte nicht vorbereitet werden.',
+        )
+      }
+
+      canvas.width =
+        Math.ceil(
+          viewport.width,
+        )
+
+      canvas.height =
+        Math.ceil(
+          viewport.height,
+        )
+
+      await page.render({
+        canvasContext:
+          context,
+        viewport,
+      }).promise
+
+      pages.push({
+        id: `${file.name}-${pageNumber}-${Date.now()}`,
+        label:
+          `${file.name} – Seite ${pageNumber}`,
+        dataUrl:
+          canvas.toDataURL(
+            'image/jpeg',
+            0.88,
+          ),
+      })
+    }
+
+    return pages
+  }
+
+  async function handleDocumentFiles(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const files =
+      Array.from(
+        event.target.files ?? [],
+      )
+
+    event.target.value = ''
+
+    if (files.length === 0) {
+      return
+    }
+
+    setDocumentOcrLoading(true)
+    setDocumentOcrProgress(
+      'Dateien werden vorbereitet …',
+    )
+    setDocumentOcrText('')
+    setDocumentTitleHint('')
+    setDocumentRegions([])
+    setDocumentPageRotations({})
+    setDocumentActivePageId(null)
+    setDocumentAreaMode(false)
+    setDocumentActiveRegion(
+      'title',
+    )
+    setDocumentDragStart(null)
+    setDocumentDragCurrent(null)
+    setDocumentRegionEdit(null)
+    setRecipePreview(null)
+    setImportMessage('')
+    setImportNotes('')
+    setImportCategoryIds([])
+    setImportCollectionIds([])
+    setImportFavorite(false)
+    setSaveStatus('idle')
+
+    try {
+      const nextPages:
+        ScannedPage[] = []
+
+      for (
+        const file of files
+      ) {
+        const isPdf =
+          file.type ===
+            'application/pdf' ||
+          file.name
+            .toLowerCase()
+            .endsWith(
+              '.pdf',
+            )
+
+        if (isPdf) {
+          const pdfPages =
+            await renderPdfFileToPages(
+              file,
+            )
+
+          nextPages.push(
+            ...pdfPages,
+          )
+          continue
+        }
+
+        if (
+          file.type.startsWith(
+            'image/',
+          )
+        ) {
+          const dataUrl =
+            await readFileAsDataUrl(
+              file,
+            )
+
+          nextPages.push({
+            id: `${file.name}-${Date.now()}-${nextPages.length}`,
+            label:
+              file.name,
+            dataUrl,
+          })
+          continue
+        }
+
+        throw new Error(
+          `Nicht unterstützte Datei: ${file.name}`,
+        )
+      }
+
+      if (
+        nextPages.length === 0
+      ) {
+        throw new Error(
+          'Es wurden keine lesbaren Foto- oder PDF-Seiten gefunden.',
+        )
+      }
+
+      setDocumentPages(
+        nextPages,
+      )
+
+      setDocumentActivePageId(
+        nextPages[0]?.id ??
+          null,
+      )
+
+      setDocumentPageRotations(
+        Object.fromEntries(
+          nextPages.map(
+            (page) => [
+              page.id,
+              0,
+            ],
+          ),
+        ) as Record<
+          string,
+          DocumentPageRotation
+        >,
+      )
+
+      setDocumentSelectedImageId(
+        null,
+      )
+
+      setImportImageUrl(
+        '',
+      )
+
+      setSourceUrl('')
+      setSourceName(
+        'Foto / PDF',
+      )
+
+      setImportMessage(
+        `${nextPages.length} Seite${nextPages.length === 1 ? '' : 'n'} bereit. Tippe jetzt auf „Text automatisch erkennen“.`,
+      )
+    } catch (error) {
+      console.error(
+        'Foto/PDF konnte nicht vorbereitet werden:',
+        error,
+      )
+
+      setDocumentPages([])
+      setImportMessage(
+        error instanceof Error
+          ? error.message
+          : 'Foto/PDF konnte nicht vorbereitet werden.',
+      )
+    } finally {
+      setDocumentOcrLoading(false)
+      setDocumentOcrProgress('')
+    }
+  }
+
+
+  type OcrLineBox = {
+    text: string
+    x0: number
+    y0: number
+    x1: number
+    y1: number
+  }
+
+  function loadImageFromDataUrl(
+    dataUrl: string,
+  ) {
+    return new Promise<HTMLImageElement>(
+      (resolve, reject) => {
+        const image =
+          new Image()
+
+        image.onload =
+          () =>
+            resolve(image)
+
+        image.onerror =
+          () =>
+            reject(
+              new Error(
+                'Bild konnte für die Texterkennung nicht vorbereitet werden.',
+              ),
+            )
+
+        image.src =
+          dataUrl
+      },
+    )
+  }
+
+  async function prepareImageForOcr(
+    dataUrl: string,
+  ) {
+    const image =
+      await loadImageFromDataUrl(
+        dataUrl,
+      )
+
+    const longestSide =
+      Math.max(
+        image.naturalWidth,
+        image.naturalHeight,
+      )
+
+    const targetLongest =
+      Math.min(
+        2800,
+        Math.max(
+          2100,
+          longestSide,
+        ),
+      )
+
+    const scale =
+      targetLongest /
+      longestSide
+
+    const width =
+      Math.max(
+        1,
+        Math.round(
+          image.naturalWidth *
+            scale,
+        ),
+      )
+
+    const height =
+      Math.max(
+        1,
+        Math.round(
+          image.naturalHeight *
+            scale,
+        ),
+      )
+
+    const canvas =
+      document.createElement(
+        'canvas',
+      )
+
+    const context =
+      canvas.getContext(
+        '2d',
+        {
+          alpha: false,
+        },
+      )
+
+    if (!context) {
+      return dataUrl
+    }
+
+    canvas.width = width
+    canvas.height = height
+
+    context.fillStyle =
+      '#ffffff'
+
+    context.fillRect(
+      0,
+      0,
+      width,
+      height,
+    )
+
+    context.imageSmoothingEnabled =
+      true
+
+    context.imageSmoothingQuality =
+      'high'
+
+    context.drawImage(
+      image,
+      0,
+      0,
+      width,
+      height,
+    )
+
+    /*
+      Leichte Graustufen-/Kontrastkorrektur.
+      Bewusst nicht hart schwarz/weiss:
+      alte Kochbuchseiten und Schatten
+      bleiben so besser lesbar.
+    */
+    const imageData =
+      context.getImageData(
+        0,
+        0,
+        width,
+        height,
+      )
+
+    const pixels =
+      imageData.data
+
+    const contrast = 1.18
+    const brightness = 7
+
+    for (
+      let index = 0;
+      index < pixels.length;
+      index += 4
+    ) {
+      const red =
+        pixels[index]
+
+      const green =
+        pixels[index + 1]
+
+      const blue =
+        pixels[index + 2]
+
+      const gray =
+        red * 0.299 +
+        green * 0.587 +
+        blue * 0.114
+
+      const adjusted =
+        Math.max(
+          0,
+          Math.min(
+            255,
+            (gray - 128) *
+              contrast +
+              128 +
+              brightness,
+          ),
+        )
+
+      pixels[index] =
+        adjusted
+
+      pixels[index + 1] =
+        adjusted
+
+      pixels[index + 2] =
+        adjusted
+    }
+
+    context.putImageData(
+      imageData,
+      0,
+      0,
+    )
+
+    return canvas.toDataURL(
+      'image/jpeg',
+      0.94,
+    )
+  }
+
+  function collectOcrLineBoxes(
+    data: any,
+  ) {
+    const result:
+      OcrLineBox[] = []
+
+    const addLine = (
+      line: any,
+    ) => {
+      const text =
+        String(
+          line?.text ?? '',
+        )
+          .replace(/\s+/g, ' ')
+          .trim()
+
+      const bbox =
+        line?.bbox
+
+      if (
+        !text ||
+        !bbox ||
+        typeof bbox.x0 !==
+          'number' ||
+        typeof bbox.y0 !==
+          'number' ||
+        typeof bbox.x1 !==
+          'number' ||
+        typeof bbox.y1 !==
+          'number'
+      ) {
+        return
+      }
+
+      result.push({
+        text,
+        x0: bbox.x0,
+        y0: bbox.y0,
+        x1: bbox.x1,
+        y1: bbox.y1,
+      })
+    }
+
+    for (
+      const block of
+      data?.blocks ?? []
+    ) {
+      for (
+        const paragraph of
+        block?.paragraphs ??
+        []
+      ) {
+        for (
+          const line of
+          paragraph?.lines ??
+          []
+        ) {
+          addLine(line)
+        }
+      }
+    }
+
+    return result
+  }
+
+  function scoreOcrTitleLine(
+    line: OcrLineBox,
+    pageHeight: number,
+    medianHeight: number,
+  ) {
+    const text =
+      line.text.trim()
+
+    if (
+      text.length < 4 ||
+      text.length > 100
+    ) {
+      return -100
+    }
+
+    if (
+      /^(?:zutaten|zubereitung|füllung|fuellung|teig|streusel|tipp|hinweis|bemerkung|für|fuer|edelstahlblech|salz|pfeffer)\b/i.test(
+        text,
+      )
+    ) {
+      return -100
+    }
+
+    if (
+      /^(?:\d+|[ivxlcdm]+\s*\d*)$/i.test(
+        text,
+      )
+    ) {
+      return -100
+    }
+
+    const digits =
+      (
+        text.match(
+          /\d/g,
+        ) ?? []
+      ).length
+
+    if (
+      digits >
+      Math.max(
+        2,
+        text.length * 0.18,
+      )
+    ) {
+      return -50
+    }
+
+    const height =
+      Math.max(
+        1,
+        line.y1 - line.y0,
+      )
+
+    const verticalRatio =
+      line.y0 /
+      Math.max(
+        1,
+        pageHeight,
+      )
+
+    let score = 0
+
+    score +=
+      Math.min(
+        7,
+        height /
+          Math.max(
+            1,
+            medianHeight,
+          ) *
+          3,
+      )
+
+    if (
+      verticalRatio < 0.32
+    ) {
+      score += 4
+    }
+
+    if (
+      verticalRatio < 0.18
+    ) {
+      score += 3
+    }
+
+    if (
+      /^[A-ZÄÖÜ]/.test(
+        text,
+      )
+    ) {
+      score += 1
+    }
+
+    if (
+      text.length >= 10 &&
+      text.length <= 60
+    ) {
+      score += 2
+    }
+
+    return score
+  }
+
+  function detectTitleFromOcr(
+    lines: OcrLineBox[],
+  ) {
+    if (
+      lines.length === 0
+    ) {
+      return ''
+    }
+
+    const pageHeight =
+      Math.max(
+        ...lines.map(
+          (line) =>
+            line.y1,
+        ),
+        1,
+      )
+
+    const heights =
+      lines
+        .map(
+          (line) =>
+            Math.max(
+              1,
+              line.y1 -
+                line.y0,
+            ),
+        )
+        .sort(
+          (a, b) =>
+            a - b,
+        )
+
+    const medianHeight =
+      heights[
+        Math.floor(
+          heights.length /
+            2,
+        )
+      ] ?? 1
+
+    return (
+      lines
+        .map((line) => ({
+          line,
+          score:
+            scoreOcrTitleLine(
+              line,
+              pageHeight,
+              medianHeight,
+            ),
+        }))
+        .sort(
+          (a, b) =>
+            b.score -
+            a.score,
+        )[0]?.score >
+      0
+        ? lines
+            .map((line) => ({
+              line,
+              score:
+                scoreOcrTitleLine(
+                  line,
+                  pageHeight,
+                  medianHeight,
+                ),
+            }))
+            .sort(
+              (a, b) =>
+                b.score -
+                a.score,
+            )[0]
+            .line.text
+        : ''
+    )
+  }
+
+
+  function ocrIngredientScore(
+    text: string,
+  ) {
+    const line =
+      text.trim()
+
+    let score = 0
+
+    if (
+      /^(?:ca\.?\s*)?(?:\d+[\d\s.,/]*|½|¼|¾|⅓|⅔)\s*(?:g|kg|mg|ml|cl|dl|l|el|tl|stk|stück|prise|bund|dose|zehe|tasse|becher|packung|päckchen|scheibe)?\b/i.test(
+        line,
+      )
+    ) {
+      score += 5
+    }
+
+    if (
+      /^(?:salz|pfeffer|muskat|öl|oel|butter|rahm|mehl|zucker|milch|eier?|zwiebeln?|knoblauch|zucchini|fleisch|fisch|kräuter|kraeuter)\b/i.test(
+        line,
+      )
+    ) {
+      score += 3
+    }
+
+    if (
+      line.length <= 45
+    ) {
+      score += 1
+    }
+
+    return score
+  }
+
+  function ocrInstructionScore(
+    text: string,
+  ) {
+    const line =
+      text.trim()
+
+    let score = 0
+
+    if (
+      /\b(?:schneiden|schälen|schaelen|rühren|ruehren|mischen|zugeben|anbraten|braten|backen|garen|dünsten|duensten|erhitzen|würzen|wuerzen|kochen|aufkochen|einkochen|stellen|legen|füllen|fuellen|servieren|marinieren|abschmecken|bestreuen|verteilen|verrühren|verruehren|auskühlen|auskuehlen|vorheizen|grillieren)\b/i.test(
+        line,
+      )
+    ) {
+      score += 5
+    }
+
+    if (
+      line.length >= 55
+    ) {
+      score += 2
+    }
+
+    if (
+      /[.!;:]$/.test(
+        line,
+      )
+    ) {
+      score += 1
+    }
+
+    return score
+  }
+
+  function chooseStructuredColumns(
+    lines: OcrLineBox[],
+  ) {
+    if (
+      lines.length < 8
+    ) {
+      return null
+    }
+
+    const pageWidth =
+      Math.max(
+        ...lines.map(
+          (line) =>
+            line.x1,
+        ),
+        1,
+      )
+
+    const pageHeight =
+      Math.max(
+        ...lines.map(
+          (line) =>
+            line.y1,
+        ),
+        1,
+      )
+
+    const usable =
+      lines.filter(
+        (line) =>
+          line.y0 >
+            pageHeight * 0.13 &&
+          line.text.length >= 2,
+      )
+
+    const candidateSplits = [
+      0.42,
+      0.46,
+      0.5,
+      0.54,
+      0.58,
+    ]
+
+    let best:
+      {
+        split: number
+        left: OcrLineBox[]
+        right: OcrLineBox[]
+        score: number
+      } |
+      null = null
+
+    for (
+      const ratio of
+      candidateSplits
+    ) {
+      const split =
+        pageWidth * ratio
+
+      const left =
+        usable.filter(
+          (line) =>
+            (line.x0 + line.x1) /
+              2 <
+            split,
+        )
+
+      const right =
+        usable.filter(
+          (line) =>
+            (line.x0 + line.x1) /
+              2 >=
+            split,
+        )
+
+      if (
+        left.length < 4 ||
+        right.length < 4
+      ) {
+        continue
+      }
+
+      const crossing =
+        usable.filter(
+          (line) =>
+            line.x0 <
+              split &&
+            line.x1 >
+              split,
+        ).length
+
+      const balance =
+        Math.min(
+          left.length,
+          right.length,
+        ) /
+        Math.max(
+          left.length,
+          right.length,
+        )
+
+      const score =
+        balance * 5 -
+        crossing * 0.7
+
+      if (
+        !best ||
+        score >
+          best.score
+      ) {
+        best = {
+          split,
+          left,
+          right,
+          score,
+        }
+      }
+    }
+
+    if (
+      !best ||
+      best.score < 0.8
+    ) {
+      return null
+    }
+
+    const sortLines = (
+      values: OcrLineBox[],
+    ) =>
+      [...values].sort(
+        (a, b) =>
+          a.y0 - b.y0 ||
+          a.x0 - b.x0,
+      )
+
+    const left =
+      sortLines(
+        best.left,
+      )
+
+    const right =
+      sortLines(
+        best.right,
+      )
+
+    const scoreColumn = (
+      values: OcrLineBox[],
+    ) => {
+      let ingredient = 0
+      let instruction = 0
+
+      for (
+        const line of values
+      ) {
+        ingredient +=
+          ocrIngredientScore(
+            line.text,
+          )
+
+        instruction +=
+          ocrInstructionScore(
+            line.text,
+          )
+      }
+
+      return {
+        ingredient,
+        instruction,
+      }
+    }
+
+    const leftScore =
+      scoreColumn(left)
+
+    const rightScore =
+      scoreColumn(right)
+
+    const leftIngredientBias =
+      leftScore.ingredient -
+      leftScore.instruction
+
+    const rightIngredientBias =
+      rightScore.ingredient -
+      rightScore.instruction
+
+    if (
+      Math.abs(
+        leftIngredientBias -
+          rightIngredientBias,
+      ) < 3
+    ) {
+      return null
+    }
+
+    const ingredientLines =
+      leftIngredientBias >
+      rightIngredientBias
+        ? left
+        : right
+
+    const instructionLines =
+      ingredientLines ===
+      left
+        ? right
+        : left
+
+    return {
+      ingredientLines,
+      instructionLines,
+      confidence:
+        Math.abs(
+          leftIngredientBias -
+            rightIngredientBias,
+        ),
+    }
+  }
+
+  function buildStructuredOcrText(
+    rawText: string,
+    lines: OcrLineBox[],
+    titleHint: string,
+  ) {
+    const columns =
+      chooseStructuredColumns(
+        lines,
+      )
+
+    if (!columns) {
+      return rawText
+    }
+
+    const cleanLine = (
+      value: string,
+    ) =>
+      value
+        .replace(
+          /\s+/g,
+          ' ',
+        )
+        .trim()
+
+    const title =
+      cleanLine(
+        titleHint,
+      )
+
+    const ingredientTexts =
+      columns.ingredientLines
+        .map((line) =>
+          cleanLine(
+            line.text,
+          ),
+        )
+        .filter(
+          Boolean,
+        )
+
+    const instructionTexts =
+      columns.instructionLines
+        .map((line) =>
+          cleanLine(
+            line.text,
+          ),
+        )
+        .filter(
+          Boolean,
+        )
+
+    const tipLines =
+      [
+        ...ingredientTexts,
+        ...instructionTexts,
+      ].filter((line) =>
+        /^(?:tipp|tip|hinweis|bemerkung)\b/i.test(
+          line,
+        ),
+      )
+
+    const withoutTips = (
+      values: string[],
+    ) =>
+      values.filter(
+        (line) =>
+          !/^(?:tipp|tip|hinweis|bemerkung)\b/i.test(
+            line,
+          ),
+      )
+
+    const parts:
+      string[] = []
+
+    if (title) {
+      parts.push(title)
+    }
+
+    parts.push(
+      'Zutaten',
+    )
+
+    parts.push(
+      ...withoutTips(
+        ingredientTexts,
+      ),
+    )
+
+    parts.push(
+      'Zubereitung',
+    )
+
+    parts.push(
+      ...withoutTips(
+        instructionTexts,
+      ),
+    )
+
+    if (
+      tipLines.length > 0
+    ) {
+      parts.push(
+        'Tipp / Hinweis',
+      )
+      parts.push(
+        ...tipLines.map(
+          (line) =>
+            line.replace(
+              /^(?:tipp|tip|hinweis|bemerkung)\s*:?\s*/i,
+              '',
+            ),
+        ),
+      )
+    }
+
+    return parts.join(
+      '\n',
+    )
+  }
+
+  async function recognizeTitleCrop(
+    worker: any,
+    preparedImage: string,
+  ) {
+    try {
+      const image =
+        await loadImageFromDataUrl(
+          preparedImage,
+        )
+
+      const topHeight =
+        Math.max(
+          200,
+          Math.round(
+            image.naturalHeight *
+              0.28,
+          ),
+        )
+
+      const result =
+        await worker.recognize(
+          preparedImage,
+          {
+            rectangle: {
+              left: 0,
+              top: 0,
+              width:
+                image.naturalWidth,
+              height:
+                Math.min(
+                  topHeight,
+                  image.naturalHeight,
+                ),
+            },
+          },
+          {
+            text: true,
+            blocks: true,
+          },
+        )
+
+      const lines =
+        collectOcrLineBoxes(
+          result.data,
+        )
+
+      const fromLayout =
+        detectTitleFromOcr(
+          lines,
+        )
+
+      if (
+        fromLayout &&
+        !/\b(?:blechkuchen|edelstahlblech|für|fuer|personen?|portionen?|zubereitung)\b/i.test(
+          fromLayout,
+        ) &&
+        !/\b\d+\s*[x×]\s*\d+\s*cm\b/i.test(
+          fromLayout,
+        )
+      ) {
+        return fromLayout
+      }
+
+      const candidates =
+        String(
+          result.data.text ??
+            '',
+        )
+          .split(/\r?\n/)
+          .map((line) =>
+            line
+              .replace(
+                /\s+/g,
+                ' ',
+              )
+              .trim(),
+          )
+          .filter(
+            (line) =>
+              line.length >= 5 &&
+              line.length <= 90 &&
+              !/^(?:zutaten|zubereitung|füllung|fuellung|teig|streusel|für|fuer|edelstahlblech)\b/i.test(
+                line,
+              ) &&
+              !/\b\d+\s*[x×]\s*\d+\s*cm\b/i.test(
+                line,
+              ),
+          )
+
+      return (
+        candidates[0] ??
+        ''
+      )
+    } catch {
+      return ''
+    }
+  }
+
+
+  const documentRegionLabels:
+    Record<
+      DocumentRegionKey,
+      string
+    > = {
+      title: 'Titel',
+      ingredients:
+        'Zutaten',
+      instructions:
+        'Zubereitung',
+      notes:
+        'Tipp / Hinweis',
+      image:
+        'Rezeptbild',
+    }
+
+  function getRelativePointer(
+    event: {
+      clientX: number
+      clientY: number
+      currentTarget: HTMLElement
+    },
+  ) {
+    const rect =
+      event.currentTarget.getBoundingClientRect()
+
+    return {
+      x: Math.max(
+        0,
+        Math.min(
+          1,
+          (event.clientX -
+            rect.left) /
+            rect.width,
+        ),
+      ),
+      y: Math.max(
+        0,
+        Math.min(
+          1,
+          (event.clientY -
+            rect.top) /
+            rect.height,
+        ),
+      ),
+    }
+  }
+
+  function getNextDocumentRegionOrder(
+    kind: DocumentRegionKey,
+  ) {
+    return (
+      documentRegions.filter(
+        (region) =>
+          region.kind === kind,
+      ).length + 1
+    )
+  }
+
+  function setDocumentRegionFromDrag(
+    start: {
+      x: number
+      y: number
+    },
+    end: {
+      x: number
+      y: number
+    },
+    pageId: string,
+  ) {
+    const x =
+      Math.min(
+        start.x,
+        end.x,
+      )
+
+    const y =
+      Math.min(
+        start.y,
+        end.y,
+      )
+
+    const width =
+      Math.abs(
+        end.x -
+          start.x,
+      )
+
+    const height =
+      Math.abs(
+        end.y -
+          start.y,
+      )
+
+    if (
+      width < 0.03 ||
+      height < 0.03
+    ) {
+      return
+    }
+
+    const nextOrder =
+      getNextDocumentRegionOrder(
+        documentActiveRegion,
+      )
+
+    const id =
+      `${pageId}-${documentActiveRegion}-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`
+
+    setDocumentRegions(
+      (current) => {
+        const base =
+          documentActiveRegion ===
+          'image'
+            ? current.filter(
+                (region) =>
+                  region.kind !==
+                  'image',
+              )
+            : current
+
+        return [
+          ...base,
+          {
+            id,
+            pageId,
+            kind:
+              documentActiveRegion,
+            order:
+              documentActiveRegion ===
+              'image'
+                ? 1
+                : nextOrder,
+            x,
+            y,
+            width,
+            height,
+            angle: 0,
+          },
+        ]
+      },
+    )
+  }
+
+  function rotateDocumentRegion(
+    id: string,
+    delta: number,
+  ) {
+    setDocumentRegions(
+      (current) =>
+        current.map(
+          (region) => {
+            if (
+              region.id !== id
+            ) {
+              return region
+            }
+
+            const angle =
+              Math.max(
+                -45,
+                Math.min(
+                  45,
+                  region.angle +
+                    delta,
+                ),
+              )
+
+            return {
+              ...region,
+              angle,
+            }
+          },
+        ),
+    )
+  }
+
+  function removeDocumentRegion(
+    id: string,
+  ) {
+    setDocumentRegions(
+      (current) =>
+        current.filter(
+          (region) =>
+            region.id !== id,
+        ),
+    )
+  }
+
+  async function rotateDocumentPage(
+    pageId: string,
+    direction:
+      | 'left'
+      | 'right',
+  ) {
+    const page =
+      documentPages.find(
+        (item) =>
+          item.id === pageId,
+      )
+
+    if (!page) {
+      return
+    }
+
+    try {
+      const rotated =
+        await rotateDataUrl(
+          page.dataUrl,
+          direction ===
+            'right'
+            ? 90
+            : 270,
+        )
+
+      setDocumentPages(
+        (current) =>
+          current.map(
+            (item) =>
+              item.id === pageId
+                ? {
+                    ...item,
+                    dataUrl:
+                      rotated,
+                  }
+                : item,
+          ),
+      )
+
+      setDocumentPageRotations(
+        (current) => ({
+          ...current,
+          [pageId]: 0,
+        }),
+      )
+
+      /*
+        Nach dem Drehen stimmen alte
+        Markierungen nicht mehr.
+      */
+      setDocumentRegions(
+        (current) =>
+          current.filter(
+            (region) =>
+              region.pageId !==
+              pageId,
+          ),
+      )
+
+      setDocumentDragStart(null)
+      setDocumentDragCurrent(null)
+      setDocumentRegionEdit(null)
+    } catch (error) {
+      console.error(
+        'Seite konnte nicht gedreht werden:',
+        error,
+      )
+    }
+  }
+
+
+  async function rotateDataUrl(
+    dataUrl: string,
+    rotation: DocumentPageRotation,
+  ) {
+    if (rotation === 0) {
+      return dataUrl
+    }
+
+    const image =
+      await loadImageFromDataUrl(
+        dataUrl,
+      )
+
+    const swap =
+      rotation === 90 ||
+      rotation === 270
+
+    const canvas =
+      document.createElement(
+        'canvas',
+      )
+
+    canvas.width =
+      swap
+        ? image.naturalHeight
+        : image.naturalWidth
+
+    canvas.height =
+      swap
+        ? image.naturalWidth
+        : image.naturalHeight
+
+    const context =
+      canvas.getContext(
+        '2d',
+      )
+
+    if (!context) {
+      return dataUrl
+    }
+
+    context.fillStyle =
+      '#ffffff'
+
+    context.fillRect(
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    )
+
+    context.translate(
+      canvas.width / 2,
+      canvas.height / 2,
+    )
+
+    context.rotate(
+      (rotation *
+        Math.PI) /
+        180,
+    )
+
+    context.drawImage(
+      image,
+      -image.naturalWidth /
+        2,
+      -image.naturalHeight /
+        2,
+    )
+
+    return canvas.toDataURL(
+      'image/jpeg',
+      0.96,
+    )
+  }
+
+  async function cropDataUrl(
+    dataUrl: string,
+    region: DocumentRegion,
+    rotation: DocumentPageRotation,
+  ) {
+    const rotated =
+      await rotateDataUrl(
+        dataUrl,
+        rotation,
+      )
+
+    const image =
+      await loadImageFromDataUrl(
+        rotated,
+      )
+
+    const sourceWidth =
+      Math.max(
+        1,
+        Math.round(
+          image.naturalWidth *
+            region.width,
+        ),
+      )
+
+    const sourceHeight =
+      Math.max(
+        1,
+        Math.round(
+          image.naturalHeight *
+            region.height,
+        ),
+      )
+
+    const centerX =
+      image.naturalWidth *
+      (
+        region.x +
+        region.width / 2
+      )
+
+    const centerY =
+      image.naturalHeight *
+      (
+        region.y +
+        region.height / 2
+      )
+
+    const scale =
+      Math.min(
+        3,
+        Math.max(
+          1,
+          1800 /
+            Math.max(
+              sourceWidth,
+              sourceHeight,
+            ),
+        ),
+      )
+
+    const canvas =
+      document.createElement(
+        'canvas',
+      )
+
+    const context =
+      canvas.getContext(
+        '2d',
+        {
+          alpha: false,
+        },
+      )
+
+    if (!context) {
+      throw new Error(
+        'Bereich konnte nicht vorbereitet werden.',
+      )
+    }
+
+    canvas.width =
+      Math.max(
+        1,
+        Math.round(
+          sourceWidth *
+            scale,
+        ),
+      )
+
+    canvas.height =
+      Math.max(
+        1,
+        Math.round(
+          sourceHeight *
+            scale,
+        ),
+      )
+
+    context.fillStyle =
+      '#ffffff'
+
+    context.fillRect(
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    )
+
+    context.save()
+
+    context.translate(
+      canvas.width / 2,
+      canvas.height / 2,
+    )
+
+    context.scale(
+      scale,
+      scale,
+    )
+
+    context.rotate(
+      -(
+        region.angle *
+        Math.PI
+      ) /
+        180,
+    )
+
+    context.drawImage(
+      image,
+      -centerX,
+      -centerY,
+    )
+
+    context.restore()
+
+    return canvas.toDataURL(
+      'image/jpeg',
+      0.96,
+    )
+  }
+
+
+  async function useDocumentRegionAsRecipeImage(
+    region: DocumentRegion,
+  ) {
+    const page =
+      documentPages.find(
+        (item) =>
+          item.id ===
+          region.pageId,
+      )
+
+    if (!page) {
+      return
+    }
+
+    try {
+      const image =
+        await cropDataUrl(
+          page.dataUrl,
+          region,
+          documentPageRotations[
+            page.id
+          ] ?? 0,
+        )
+
+      setImportImageUrl(
+        image,
+      )
+
+      setDocumentSelectedImageId(
+        region.id,
+      )
+
+      setImportMessage(
+        '✓ Markierter Bildbereich als Rezeptbild übernommen.',
+      )
+    } catch (error) {
+      console.error(
+        'Rezeptbild-Ausschnitt fehlgeschlagen:',
+        error,
+      )
+    }
+  }
+
+
+  function updateDocumentRegion(
+    id: string,
+    update:
+      Partial<DocumentRegion>,
+  ) {
+    setDocumentRegions(
+      (current) =>
+        current.map(
+          (region) =>
+            region.id === id
+              ? {
+                  ...region,
+                  ...update,
+                }
+              : region,
+        ),
+    )
+  }
+
+  function beginDocumentRegionEdit(
+    event: React.PointerEvent<HTMLElement>,
+    region: DocumentRegion,
+    mode:
+      | 'move'
+      | 'nw'
+      | 'ne'
+      | 'sw'
+      | 'se',
+  ) {
+    event.stopPropagation()
+
+    const canvas =
+      event.currentTarget.closest(
+        '[data-region-canvas="true"]',
+      ) as HTMLElement | null
+
+    if (!canvas) {
+      return
+    }
+
+    const rect =
+      canvas.getBoundingClientRect()
+
+    setDocumentRegionEdit({
+      id: region.id,
+      mode,
+      startX:
+        (event.clientX -
+          rect.left) /
+        rect.width,
+      startY:
+        (event.clientY -
+          rect.top) /
+        rect.height,
+      original: {
+        ...region,
+      },
+    })
+
+    event.currentTarget.setPointerCapture(
+      event.pointerId,
+    )
+  }
+
+  function moveDocumentRegionEdit(
+    event: React.PointerEvent<HTMLElement>,
+  ) {
+    if (!documentRegionEdit) {
+      return
+    }
+
+    const canvas =
+      event.currentTarget.closest(
+        '[data-region-canvas="true"]',
+      ) as HTMLElement | null
+
+    if (!canvas) {
+      return
+    }
+
+    const rect =
+      canvas.getBoundingClientRect()
+
+    const x =
+      (event.clientX -
+        rect.left) /
+      rect.width
+
+    const y =
+      (event.clientY -
+        rect.top) /
+      rect.height
+
+    const dx =
+      x -
+      documentRegionEdit.startX
+
+    const dy =
+      y -
+      documentRegionEdit.startY
+
+    const original =
+      documentRegionEdit.original
+
+    let nextX =
+      original.x
+
+    let nextY =
+      original.y
+
+    let nextWidth =
+      original.width
+
+    let nextHeight =
+      original.height
+
+    if (
+      documentRegionEdit.mode ===
+      'move'
+    ) {
+      nextX =
+        Math.max(
+          0,
+          Math.min(
+            1 -
+              original.width,
+            original.x + dx,
+          ),
+        )
+
+      nextY =
+        Math.max(
+          0,
+          Math.min(
+            1 -
+              original.height,
+            original.y + dy,
+          ),
+        )
+    } else {
+      const minSize = 0.03
+
+      if (
+        documentRegionEdit.mode ===
+          'nw' ||
+        documentRegionEdit.mode ===
+          'sw'
+      ) {
+        const right =
+          original.x +
+          original.width
+
+        nextX =
+          Math.max(
+            0,
+            Math.min(
+              right -
+                minSize,
+              original.x +
+                dx,
+            ),
+          )
+
+        nextWidth =
+          right -
+          nextX
+      }
+
+      if (
+        documentRegionEdit.mode ===
+          'ne' ||
+        documentRegionEdit.mode ===
+          'se'
+      ) {
+        nextWidth =
+          Math.max(
+            minSize,
+            Math.min(
+              1 -
+                original.x,
+              original.width +
+                dx,
+            ),
+          )
+      }
+
+      if (
+        documentRegionEdit.mode ===
+          'nw' ||
+        documentRegionEdit.mode ===
+          'ne'
+      ) {
+        const bottom =
+          original.y +
+          original.height
+
+        nextY =
+          Math.max(
+            0,
+            Math.min(
+              bottom -
+                minSize,
+              original.y +
+                dy,
+            ),
+          )
+
+        nextHeight =
+          bottom -
+          nextY
+      }
+
+      if (
+        documentRegionEdit.mode ===
+          'sw' ||
+        documentRegionEdit.mode ===
+          'se'
+      ) {
+        nextHeight =
+          Math.max(
+            minSize,
+            Math.min(
+              1 -
+                original.y,
+              original.height +
+                dy,
+            ),
+          )
+      }
+    }
+
+    updateDocumentRegion(
+      documentRegionEdit.id,
+      {
+        x: nextX,
+        y: nextY,
+        width:
+          nextWidth,
+        height:
+          nextHeight,
+      },
+    )
+  }
+
+  function finishDocumentRegionEdit() {
+    setDocumentRegionEdit(
+      null,
+    )
+  }
+
+  async function recognizeSelectedDocumentAreas() {
+    if (
+      documentPages.length === 0
+    ) {
+      setImportMessage(
+        'Bitte zuerst mindestens eine Foto- oder PDF-Seite auswählen.',
+      )
+      return
+    }
+
+    const required:
+      DocumentRegionKey[] = [
+        'title',
+        'ingredients',
+        'instructions',
+      ]
+
+    const missing =
+      required.filter(
+        (kind) =>
+          !documentRegions.some(
+            (region) =>
+              region.kind ===
+              kind,
+          ),
+      )
+
+    if (
+      missing.length > 0
+    ) {
+      setImportMessage(
+        `Bitte noch mindestens einen Bereich markieren für: ${missing
+          .map(
+            (key) =>
+              documentRegionLabels[
+                key
+              ],
+          )
+          .join(', ')}.`,
+      )
+      return
+    }
+
+    setDocumentOcrLoading(true)
+    setDocumentOcrProgress(
+      'Markierte Bereiche werden einzeln gelesen …',
+    )
+    setRecipePreview(null)
+    setSaveStatus('idle')
+    setImportMessage('')
+
+    let worker:
+      Awaited<
+        ReturnType<
+          typeof createWorker
+        >
+      > |
+      null = null
+
+    try {
+      worker =
+        await createWorker(
+          'deu',
+        )
+
+      const resultTexts:
+        Record<
+          DocumentRegionKey,
+          string[]
+        > = {
+          title: [],
+          ingredients: [],
+          instructions: [],
+          notes: [],
+          image: [],
+        }
+
+      const sorted =
+        [...documentRegions].sort(
+          (a, b) => {
+            const pageA =
+              documentPages.findIndex(
+                (page) =>
+                  page.id ===
+                  a.pageId,
+              )
+
+            const pageB =
+              documentPages.findIndex(
+                (page) =>
+                  page.id ===
+                  b.pageId,
+              )
+
+            return (
+              pageA - pageB ||
+              a.order - b.order
+            )
+          },
+        )
+
+      for (
+        let index = 0;
+        index < sorted.length;
+        index++
+      ) {
+        const region =
+          sorted[index]
+
+        const page =
+          documentPages.find(
+            (item) =>
+              item.id ===
+              region.pageId,
+          )
+
+        if (!page) {
+          continue
+        }
+
+        if (
+          region.kind ===
+          'image'
+        ) {
+          await useDocumentRegionAsRecipeImage(
+            region,
+          )
+          continue
+        }
+
+        setDocumentOcrProgress(
+          `${documentRegionLabels[region.kind]} ${region.order} wird gelesen …`,
+        )
+
+        const cropped =
+          await cropDataUrl(
+            page.dataUrl,
+            region,
+            documentPageRotations[
+              page.id
+            ] ?? 0,
+          )
+
+        const prepared =
+          await prepareImageForOcr(
+            cropped,
+          )
+
+        const result =
+          await (
+            worker as any
+          ).recognize(
+            prepared,
+            {
+              rotateAuto:
+                true,
+            },
+            {
+              text: true,
+            },
+          )
+
+        const text =
+          String(
+            result.data.text ??
+              '',
+          )
+            .replace(
+              /\r/g,
+              '',
+            )
+            .trim()
+
+        if (text) {
+          resultTexts[
+            region.kind
+          ].push(text)
+        }
+      }
+
+      const title =
+        resultTexts.title
+          .join('\n')
+          .trim()
+
+      const ingredients =
+        resultTexts.ingredients
+          .join('\n')
+          .trim()
+
+      const instructions =
+        resultTexts.instructions
+          .join('\n')
+          .trim()
+
+      const notes =
+        resultTexts.notes
+          .join('\n')
+          .trim()
+
+      const assembled = [
+        title,
+        'Zutaten',
+        ingredients,
+        'Zubereitung',
+        instructions,
+        ...(notes
+          ? [
+              'Tipp / Hinweis',
+              notes,
+            ]
+          : []),
+      ]
+        .filter(Boolean)
+        .join('\n')
+        .trim()
+
+      setDocumentTitleHint(
+        title
+          .split(/\r?\n/)
+          .map(
+            (line) =>
+              line.trim(),
+          )
+          .find(Boolean) ??
+          '',
+      )
+
+      setDocumentOcrText(
+        assembled,
+      )
+
+      setImportMessage(
+        '✓ Alle markierten Bereiche aller Seiten wurden zusammengeführt. Prüfe den Text kurz und bereite danach das Rezept vor.',
+      )
+    } catch (error) {
+      console.error(
+        'Bereichserkennung fehlgeschlagen:',
+        error,
+      )
+
+      setImportMessage(
+        'Die markierten Bereiche konnten nicht vollständig gelesen werden. Bitte Rahmen prüfen und nochmals versuchen.',
+      )
+    } finally {
+      if (worker) {
+        await worker.terminate()
+      }
+
+      setDocumentOcrLoading(false)
+      setDocumentOcrProgress('')
+    }
+  }
+
+
+  async function recognizeDocumentText() {
+    if (
+      documentPages.length === 0
+    ) {
+      setImportMessage(
+        'Bitte zuerst mindestens ein Foto oder eine PDF auswählen.',
+      )
+      return
+    }
+
+    setDocumentOcrLoading(true)
+    setDocumentOcrText('')
+    setRecipePreview(null)
+    setImportMessage('')
+    setSaveStatus('idle')
+
+    let worker:
+      Awaited<
+        ReturnType<
+          typeof createWorker
+        >
+      > |
+      null = null
+
+    try {
+      setDocumentOcrProgress(
+        'Texterkennung wird gestartet …',
+      )
+
+      worker =
+        await createWorker(
+          'deu',
+        )
+
+      const pageTexts:
+        string[] = []
+
+      for (
+        let index = 0;
+        index <
+        documentPages.length;
+        index += 1
+      ) {
+        const page =
+          documentPages[
+            index
+          ]
+
+        setDocumentOcrProgress(
+          `Text wird erkannt: Seite ${index + 1} von ${documentPages.length} …`,
+        )
+
+        const preparedImage =
+          await prepareImageForOcr(
+            page.dataUrl,
+          )
+
+        const result =
+          await (
+            worker as any
+          ).recognize(
+            preparedImage,
+            {
+              rotateAuto:
+                true,
+            },
+            {
+              text: true,
+              blocks: true,
+            },
+          )
+
+        const text =
+          String(
+            result.data.text ??
+              '',
+          )
+            .replace(
+              /\r/g,
+              '',
+            )
+            .trim()
+
+        const ocrLines =
+          collectOcrLineBoxes(
+            result.data,
+          )
+
+        const layoutTitle =
+          detectTitleFromOcr(
+            ocrLines,
+          )
+
+        const titleCrop =
+          index === 0
+            ? await recognizeTitleCrop(
+                worker,
+                preparedImage,
+              )
+            : ''
+
+        const titleHint =
+          titleCrop ||
+          layoutTitle
+
+        if (
+          index === 0 &&
+          titleHint
+        ) {
+          setDocumentTitleHint(
+            titleHint,
+          )
+        }
+
+        const structuredText =
+          buildStructuredOcrText(
+            text,
+            ocrLines,
+            titleHint,
+          )
+
+        if (structuredText) {
+          pageTexts.push(
+            documentPages.length >
+              1
+              ? `--- ${page.label} ---\n${structuredText}`
+              : structuredText,
+          )
+        }
+      }
+
+      const combinedText =
+        pageTexts
+          .join(
+            '\n\n',
+          )
+          .trim()
+
+      setDocumentOcrText(
+        combinedText,
+      )
+
+      if (!combinedText) {
+        setImportMessage(
+          'Auf den ausgewählten Seiten konnte kein Text erkannt werden. Bitte ein schärferes Foto versuchen.',
+        )
+      } else {
+        setImportMessage(
+          '✓ Text erkannt. Prüfe ihn kurz. Bei einer Seite mit mehreren Rezepten kannst du den nicht benötigten Teil löschen. Danach „Rezept aus Text vorbereiten“ drücken.',
+        )
+      }
+    } catch (error) {
+      console.error(
+        'Texterkennung fehlgeschlagen:',
+        error,
+      )
+
+      setImportMessage(
+        'Die Texterkennung konnte nicht abgeschlossen werden. Bitte Foto/PDF nochmals versuchen.',
+      )
+    } finally {
+      if (worker) {
+        await worker.terminate()
+      }
+
+      setDocumentOcrLoading(false)
+      setDocumentOcrProgress('')
+    }
+  }
+
+  async function prepareDocumentRecipe() {
+    const text =
+      documentOcrText.trim()
+
+    if (!text) {
+      setImportMessage(
+        'Bitte zuerst den Text aus dem Foto/PDF erkennen lassen.',
+      )
+      return
+    }
+
+    setImportLoading(true)
+    setRecipePreview(null)
+    setImportMessage('')
+    setImportCategoryIds([])
+    setImportCollectionIds([])
+    setImportFavorite(false)
+    setSaveStatus('idle')
+
+    try {
+      const response =
+        await fetch(
+          'https://kochwerk-import-worker.andy-kochwerk.workers.dev/import-text',
+          {
+            method: 'POST',
+            headers: {
+              'content-type':
+                'application/json',
+            },
+            body:
+              JSON.stringify({
+                text,
+                sourceName:
+                  'Foto / PDF',
+                sourceUrl: '',
+                titleHint:
+                  documentTitleHint,
+              }),
+          },
+        )
+
+      const result =
+        await response.json() as {
+          success: boolean
+          sourceUrl?: string
+          sourceName?: string
+          recipe?: ImportedRecipe & {
+            notes?: string
+          }
+          error?: string
+        }
+
+      if (
+        response.ok &&
+        result.success &&
+        result.recipe
+      ) {
+        setRecipePreview(
+          result.recipe,
+        )
+        setSourceUrl('')
+        setSourceName(
+          'Foto / PDF',
+        )
+        setImportNotes(
+          result.recipe.notes ??
+            '',
+        )
+        setImportMessage(
+          '✓ Rezept vorbereitet. Titel, Zutaten und Zubereitung können unten noch korrigiert werden.',
+        )
+      } else {
+        setImportMessage(
+          result.error ??
+            'Der erkannte Text konnte noch nicht sicher in ein Rezept aufgeteilt werden. Du kannst den Text oben korrigieren oder auf das gewünschte Rezept kürzen und nochmals versuchen.',
+        )
+      }
+    } catch (error) {
+      console.error(
+        'Foto/PDF-Rezept konnte nicht ausgewertet werden:',
+        error,
+      )
+
+      setImportMessage(
+        'Der erkannte Text konnte nicht ausgewertet werden.',
+      )
+    } finally {
+      setImportLoading(false)
+    }
+  }
+
+  function useDocumentPageAsRecipeImage(
+    page: ScannedPage,
+  ) {
+    setDocumentSelectedImageId(
+      page.id,
+    )
+    setImportImageUrl(
+      page.dataUrl,
+    )
+    setImportMessage(
+      'Seite als Rezeptbild vorgemerkt. Das kannst du jederzeit wieder ändern.',
+    )
+  }
+
   async function handleFacebookTextImport() {
     const text =
       facebookText.trim()
@@ -3249,6 +5956,21 @@ function App() {
       setFacebookText('')
       setImportVideoUrl('')
       setImportVideoTitle('')
+      setDocumentPages([])
+      setDocumentOcrText('')
+      setDocumentOcrProgress('')
+      setDocumentSelectedImageId(null)
+      setDocumentTitleHint('')
+      setDocumentRegions([])
+      setDocumentPageRotations({})
+      setDocumentActivePageId(null)
+      setDocumentAreaMode(false)
+      setDocumentActiveRegion(
+        'title',
+      )
+      setDocumentDragStart(null)
+      setDocumentDragCurrent(null)
+      setDocumentRegionEdit(null)
 
       await loadRecipes()
     } catch (error) {
@@ -8284,7 +11006,7 @@ function App() {
               style={{
                 display: 'grid',
                 gridTemplateColumns:
-                  '1fr 1fr 1fr',
+                  'repeat(2, minmax(0, 1fr))',
                 gap: '10px',
                 marginBottom: '18px',
               }}
@@ -8327,6 +11049,30 @@ function App() {
                 }}
               >
                 Facebook-Hilfe
+              </button>
+
+              <button
+                className={
+                  importMode === 'document'
+                    ? 'primary'
+                    : 'secondary'
+                }
+                type="button"
+                onClick={() => {
+                  setImportMode(
+                    'document',
+                  )
+                  setImportMessage('')
+                  setRecipePreview(null)
+                  setImportNotes('')
+                  setSaveStatus('idle')
+                  setSourceUrl('')
+                  setSourceName(
+                    'Foto / PDF',
+                  )
+                }}
+              >
+                📄 Foto / PDF
               </button>
 
               <button
@@ -8578,6 +11324,1047 @@ function App() {
                     : 'Facebook-Rezept auswerten'}
                 </button>
               </>
+            ) : importMode === 'document' ? (
+              <>
+                <p
+                  style={{
+                    margin:
+                      '14px 0 0',
+                    lineHeight: 1.45,
+                  }}
+                >
+                  Fotografiertes oder gescanntes
+                  Rezept einlesen. Die Erkennung
+                  verbessert Kontrast und
+                  Layout automatisch. Für alte
+                  oder schwierige Kochbuchseiten
+                  kannst du Titel, Zutaten und
+                  Zubereitung zusätzlich manuell
+                  markieren. Unterstützt
+                  JPG, PNG, WebP und PDF.
+                  Mehrere Fotos oder PDF-Seiten
+                  können gemeinsam ausgewählt
+                  werden.
+                </p>
+
+                <div
+                  style={{
+                    marginTop: '16px',
+                    padding: '16px',
+                    border:
+                      '2px dashed #b9b09f',
+                    borderRadius: '14px',
+                    background: '#faf8f5',
+                  }}
+                >
+                  <strong>
+                    📄 Foto oder PDF auswählen
+                  </strong>
+
+                  <p
+                    style={{
+                      margin:
+                        '8px 0 12px',
+                      color: '#706a62',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    Bei einem Rezept über zwei
+                    Seiten einfach beide Fotos
+                    gleichzeitig auswählen.
+                  </p>
+
+                  <input
+                    type="file"
+                    multiple
+                    accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+                    onChange={
+                      handleDocumentFiles
+                    }
+                  />
+                </div>
+
+                {documentPages.length >
+                  0 && (
+                  <>
+                    <div
+                      style={{
+                        display:
+                          'grid',
+                        gridTemplateColumns:
+                          'repeat(2, minmax(0, 1fr))',
+                        gap: '10px',
+                        marginTop:
+                          '14px',
+                      }}
+                    >
+                      {documentPages.map(
+                        (page) => (
+                          <div
+                            key={
+                              page.id
+                            }
+                            style={{
+                              padding:
+                                '8px',
+                              border:
+                                documentSelectedImageId ===
+                                page.id
+                                  ? '2px solid #ef6b52'
+                                  : '1px solid #ddd5ca',
+                              borderRadius:
+                                '12px',
+                              background:
+                                '#fff',
+                            }}
+                          >
+                            <img
+                              src={
+                                page.dataUrl
+                              }
+                              alt={
+                                page.label
+                              }
+                              style={{
+                                display:
+                                  'block',
+                                width:
+                                  '100%',
+                                height:
+                                  '150px',
+                                objectFit:
+                                  'contain',
+                                borderRadius:
+                                  '8px',
+                                background:
+                                  '#f4f1ed',
+                              }}
+                            />
+
+                            <div
+                              style={{
+                                marginTop:
+                                  '6px',
+                                fontSize:
+                                  '0.78rem',
+                                color:
+                                  '#706a62',
+                                overflow:
+                                  'hidden',
+                                textOverflow:
+                                  'ellipsis',
+                                whiteSpace:
+                                  'nowrap',
+                              }}
+                              title={
+                                page.label
+                              }
+                            >
+                              {
+                                page.label
+                              }
+                            </div>
+
+                            <button
+                              className="secondary"
+                              type="button"
+                              onClick={() =>
+                                useDocumentPageAsRecipeImage(
+                                  page,
+                                )
+                              }
+                              style={{
+                                width:
+                                  '100%',
+                                marginTop:
+                                  '7px',
+                                padding:
+                                  '7px 8px',
+                                fontSize:
+                                  '0.8rem',
+                              }}
+                            >
+                              🖼️ Als Rezeptbild
+                            </button>
+                          </div>
+                        ),
+                      )}
+                    </div>
+
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => {
+                        setDocumentAreaMode(
+                          (value) =>
+                            !value,
+                        )
+                        setImportMessage(
+                          '',
+                        )
+                        setRecipePreview(
+                          null,
+                        )
+                      }}
+                      style={{
+                        width: '100%',
+                        marginTop:
+                          '12px',
+                      }}
+                    >
+                      {documentAreaMode
+                        ? '✕ Bereichsauswahl schliessen'
+                        : '✂️ Bereiche manuell markieren'}
+                    </button>
+
+                    {documentAreaMode &&
+                      documentPages.length >
+                        0 && (
+                      <div
+                        style={{
+                          marginTop:
+                            '12px',
+                          padding:
+                            '12px',
+                          border:
+                            '1px solid #ddd5ca',
+                          borderRadius:
+                            '14px',
+                          background:
+                            '#fff',
+                        }}
+                      >
+                        <strong>
+                          Schwierige Kochbuchseite
+                        </strong>
+
+                        <p
+                          style={{
+                            margin:
+                              '6px 0 10px',
+                            color:
+                              '#706a62',
+                            fontSize:
+                              '0.86rem',
+                            lineHeight:
+                              1.4,
+                          }}
+                        >
+                          Du kannst pro Typ
+                          mehrere Bereiche
+                          markieren und auch
+                          mehrere Seiten zu
+                          einem Rezept
+                          zusammenfügen. Beim
+                          Aufziehen siehst du den
+                          Rahmen sofort. Danach
+                          kannst du ihn verschieben
+                          oder an den vier Punkten
+                          nachjustieren. In der
+                          Liste unter dem Bild
+                          kannst du jeden Rahmen
+                          mit ↶ / ↷ in 2°-Schritten
+                          drehen und mit 0° wieder
+                          gerade stellen. Beim
+                          Rezeptbild ist immer nur
+                          eine Markierung aktiv;
+                          eine neue ersetzt die
+                          bisherige automatisch.
+                          Textzeilen möglichst nicht in zwei
+                          verschiedenen Rahmen
+                          gleichzeitig erfassen,
+                          damit nichts doppelt
+                          erkannt wird.
+                        </p>
+
+                        {documentPages.length >
+                          1 && (
+                          <div
+                            style={{
+                              display:
+                                'flex',
+                              gap: '6px',
+                              overflowX:
+                                'auto',
+                              marginBottom:
+                                '10px',
+                            }}
+                          >
+                            {documentPages.map(
+                              (
+                                page,
+                                index,
+                              ) => (
+                                <button
+                                  key={
+                                    page.id
+                                  }
+                                  type="button"
+                                  className={
+                                    documentActivePageId ===
+                                    page.id
+                                      ? 'primary'
+                                      : 'secondary'
+                                  }
+                                  onClick={() =>
+                                    setDocumentActivePageId(
+                                      page.id,
+                                    )
+                                  }
+                                  style={{
+                                    flex:
+                                      '0 0 auto',
+                                    padding:
+                                      '7px 10px',
+                                  }}
+                                >
+                                  Seite{' '}
+                                  {index +
+                                    1}
+                                </button>
+                              ),
+                            )}
+                          </div>
+                        )}
+
+                        {documentActivePageId && (
+                          <>
+                            <div
+                              style={{
+                                display:
+                                  'grid',
+                                gridTemplateColumns:
+                                  '1fr 1fr',
+                                gap:
+                                  '7px',
+                                marginBottom:
+                                  '8px',
+                              }}
+                            >
+                              <button
+                                className="secondary"
+                                type="button"
+                                onClick={() =>
+                                  rotateDocumentPage(
+                                    documentActivePageId,
+                                    'left',
+                                  )
+                                }
+                              >
+                                ↶ 90° links
+                              </button>
+
+                              <button
+                                className="secondary"
+                                type="button"
+                                onClick={() =>
+                                  rotateDocumentPage(
+                                    documentActivePageId,
+                                    'right',
+                                  )
+                                }
+                              >
+                                ↷ 90° rechts
+                              </button>
+                            </div>
+
+                            <div
+                              style={{
+                                display:
+                                  'grid',
+                                gridTemplateColumns:
+                                  'repeat(2, minmax(0, 1fr))',
+                                gap:
+                                  '7px',
+                                marginBottom:
+                                  '10px',
+                              }}
+                            >
+                              {(
+                                [
+                                  'title',
+                                  'ingredients',
+                                  'instructions',
+                                  'notes',
+                                  'image',
+                                ] as DocumentRegionKey[]
+                              ).map(
+                                (key) => {
+                                  const count =
+                                    documentRegions.filter(
+                                      (
+                                        region,
+                                      ) =>
+                                        region.kind ===
+                                          key,
+                                    ).length
+
+                                  return (
+                                    <button
+                                      key={
+                                        key
+                                      }
+                                      type="button"
+                                      className={
+                                        documentActiveRegion ===
+                                        key
+                                          ? 'primary'
+                                          : 'secondary'
+                                      }
+                                      onClick={() =>
+                                        setDocumentActiveRegion(
+                                          key,
+                                        )
+                                      }
+                                      style={{
+                                        padding:
+                                          '8px 6px',
+                                        fontSize:
+                                          '0.82rem',
+                                      }}
+                                    >
+                                      {count >
+                                      0
+                                        ? `✓ ${documentRegionLabels[key]} (${count})`
+                                        : `＋ ${documentRegionLabels[key]}`}
+                                    </button>
+                                  )
+                                },
+                              )}
+                            </div>
+
+                            {(() => {
+                              const page =
+                                documentPages.find(
+                                  (
+                                    item,
+                                  ) =>
+                                    item.id ===
+                                    documentActivePageId,
+                                )
+
+                              if (!page) {
+                                return null
+                              }
+
+                              return (
+                                <div
+                                  data-region-canvas="true"
+                                  style={{
+                                    position:
+                                      'relative',
+                                    width:
+                                      '100%',
+                                    touchAction:
+                                      'none',
+                                    userSelect:
+                                      'none',
+                                    borderRadius:
+                                      '10px',
+                                    overflow:
+                                      'hidden',
+                                    background:
+                                      '#f4f1ed',
+                                    cursor:
+                                      'crosshair',
+                                  }}
+                                  onPointerDown={(
+                                    event,
+                                  ) => {
+                                    if (
+                                      documentRegionEdit
+                                    ) {
+                                      return
+                                    }
+
+                                    event.currentTarget.setPointerCapture(
+                                      event.pointerId,
+                                    )
+
+                                    const point =
+                                      getRelativePointer(
+                                        event,
+                                      )
+
+                                    setDocumentDragStart(
+                                      point,
+                                    )
+
+                                    setDocumentDragCurrent(
+                                      point,
+                                    )
+                                  }}
+                                  onPointerMove={(
+                                    event,
+                                  ) => {
+                                    if (
+                                      documentRegionEdit
+                                    ) {
+                                      return
+                                    }
+
+                                    if (
+                                      documentDragStart
+                                    ) {
+                                      setDocumentDragCurrent(
+                                        getRelativePointer(
+                                          event,
+                                        ),
+                                      )
+                                    }
+                                  }}
+                                  onPointerUp={(
+                                    event,
+                                  ) => {
+                                    if (
+                                      documentRegionEdit
+                                    ) {
+                                      finishDocumentRegionEdit()
+                                      return
+                                    }
+
+                                    if (
+                                      !documentDragStart
+                                    ) {
+                                      return
+                                    }
+
+                                    const end =
+                                      getRelativePointer(
+                                        event,
+                                      )
+
+                                    setDocumentRegionFromDrag(
+                                      documentDragStart,
+                                      end,
+                                      page.id,
+                                    )
+
+                                    setDocumentDragStart(
+                                      null,
+                                    )
+                                    setDocumentDragCurrent(
+                                      null,
+                                    )
+                                  }}
+                                >
+                                  <img
+                                    src={
+                                      page.dataUrl
+                                    }
+                                    alt="Bereiche markieren"
+                                    draggable={
+                                      false
+                                    }
+                                    style={{
+                                      display:
+                                        'block',
+                                      width:
+                                        '100%',
+                                      height:
+                                        'auto',
+                                      pointerEvents:
+                                        'none',
+                                    }}
+                                  />
+
+                                  {documentDragStart &&
+                                    documentDragCurrent && (
+                                      <div
+                                        style={{
+                                          position:
+                                            'absolute',
+                                          left:
+                                            `${Math.min(documentDragStart.x, documentDragCurrent.x) * 100}%`,
+                                          top:
+                                            `${Math.min(documentDragStart.y, documentDragCurrent.y) * 100}%`,
+                                          width:
+                                            `${Math.abs(documentDragCurrent.x - documentDragStart.x) * 100}%`,
+                                          height:
+                                            `${Math.abs(documentDragCurrent.y - documentDragStart.y) * 100}%`,
+                                          border:
+                                            '2px dashed #ef6b52',
+                                          background:
+                                            'rgba(239,107,82,0.04)',
+                                          boxSizing:
+                                            'border-box',
+                                          pointerEvents:
+                                            'none',
+                                          zIndex:
+                                            20,
+                                        }}
+                                      />
+                                    )}
+
+                                  {documentRegions
+                                    .filter(
+                                      (
+                                        region,
+                                      ) =>
+                                        region.pageId ===
+                                        page.id,
+                                    )
+                                    .map(
+                                      (
+                                        region,
+                                      ) => (
+                                        <div
+                                          key={
+                                            region.id
+                                          }
+                                          onPointerDown={(
+                                            event,
+                                          ) =>
+                                            beginDocumentRegionEdit(
+                                              event,
+                                              region,
+                                              'move',
+                                            )
+                                          }
+                                          onPointerMove={
+                                            moveDocumentRegionEdit
+                                          }
+                                          onPointerUp={() =>
+                                            finishDocumentRegionEdit()
+                                          }
+                                          style={{
+                                            position:
+                                              'absolute',
+                                            left:
+                                              `${region.x * 100}%`,
+                                            top:
+                                              `${region.y * 100}%`,
+                                            width:
+                                              `${region.width * 100}%`,
+                                            height:
+                                              `${region.height * 100}%`,
+                                            border:
+                                              region.kind ===
+                                              'image'
+                                                ? '2px solid #3a78b9'
+                                                : documentActiveRegion ===
+                                                  region.kind
+                                                ? '2px solid #ef6b52'
+                                                : '1px solid #5d7243',
+                                            background:
+                                              'rgba(255,255,255,0.02)',
+                                            boxSizing:
+                                              'border-box',
+                                            cursor:
+                                              'move',
+                                            zIndex:
+                                              10,
+                                            transform:
+                                              `rotate(${region.angle}deg)`,
+                                            transformOrigin:
+                                              'center center',
+                                          }}
+                                        >
+                                          <span
+                                            style={{
+                                              position:
+                                                'absolute',
+                                              left:
+                                                '3px',
+                                              top:
+                                                '3px',
+                                              padding:
+                                                '1px 4px',
+                                              borderRadius:
+                                                '4px',
+                                              background:
+                                                '#fffffff2',
+                                              fontSize:
+                                                '0.62rem',
+                                              fontWeight:
+                                                600,
+                                              pointerEvents:
+                                                'none',
+                                            }}
+                                          >
+                                            {
+                                              documentRegionLabels[
+                                                region.kind
+                                              ]
+                                            }{' '}
+                                            {
+                                              region.order
+                                            }
+                                          </span>
+
+                                          {(
+                                            [
+                                              ['nw', '0%', '0%'],
+                                              ['ne', '100%', '0%'],
+                                              ['sw', '0%', '100%'],
+                                              ['se', '100%', '100%'],
+                                            ] as const
+                                          ).map(
+                                            ([
+                                              mode,
+                                              left,
+                                              top,
+                                            ]) => (
+                                              <span
+                                                key={
+                                                  mode
+                                                }
+                                                onPointerDown={(
+                                                  event,
+                                                ) =>
+                                                  beginDocumentRegionEdit(
+                                                    event,
+                                                    region,
+                                                    mode,
+                                                  )
+                                                }
+                                                onPointerMove={
+                                                  moveDocumentRegionEdit
+                                                }
+                                                onPointerUp={() =>
+                                                  finishDocumentRegionEdit()
+                                                }
+                                                style={{
+                                                  position:
+                                                    'absolute',
+                                                  left,
+                                                  top,
+                                                  width:
+                                                    '10px',
+                                                  height:
+                                                    '10px',
+                                                  borderRadius:
+                                                    '50%',
+                                                  background:
+                                                    '#ffffffd9',
+                                                  border:
+                                                    '2px solid #ef6b52',
+                                                  transform:
+                                                    'translate(-50%, -50%)',
+                                                  boxSizing:
+                                                    'border-box',
+                                                  cursor:
+                                                    mode ===
+                                                      'nw' ||
+                                                    mode ===
+                                                      'se'
+                                                      ? 'nwse-resize'
+                                                      : 'nesw-resize',
+                                                  zIndex:
+                                                    30,
+                                                }}
+                                              />
+                                            ),
+                                          )}
+                                        </div>
+                                      ),
+                                    )}
+                                </div>
+                              )
+                            })()}
+
+                            {documentRegions.length >
+                              0 && (
+                              <div
+                                style={{
+                                  display:
+                                    'grid',
+                                  gap: '6px',
+                                  marginTop:
+                                    '10px',
+                                }}
+                              >
+                                {documentRegions.map(
+                                  (
+                                    region,
+                                  ) => {
+                                    const pageIndex =
+                                      documentPages.findIndex(
+                                        (
+                                          page,
+                                        ) =>
+                                          page.id ===
+                                          region.pageId,
+                                      )
+
+                                    return (
+                                      <div
+                                        key={
+                                          region.id
+                                        }
+                                        style={{
+                                          display:
+                                            'flex',
+                                          alignItems:
+                                            'center',
+                                          justifyContent:
+                                            'space-between',
+                                          gap:
+                                            '8px',
+                                          padding:
+                                            '7px 9px',
+                                          border:
+                                            '1px solid #e4ded5',
+                                          borderRadius:
+                                            '9px',
+                                        }}
+                                      >
+                                        <span
+                                          style={{
+                                            fontSize:
+                                              '0.82rem',
+                                            flex: 1,
+                                          }}
+                                        >
+                                          Seite{' '}
+                                          {pageIndex +
+                                            1}{' '}
+                                          –{' '}
+                                          {
+                                            documentRegionLabels[
+                                              region.kind
+                                            ]
+                                          }{' '}
+                                          {
+                                            region.order
+                                          }
+                                          {region.angle !==
+                                            0
+                                            ? ` · ${region.angle > 0 ? '+' : ''}${region.angle}°`
+                                            : ''}
+                                        </span>
+
+                                        <div
+                                          style={{
+                                            display:
+                                              'flex',
+                                            gap:
+                                              '4px',
+                                          }}
+                                        >
+                                          <button
+                                            type="button"
+                                            className="secondary"
+                                            title="Rahmen 2° nach links drehen"
+                                            onClick={() =>
+                                              rotateDocumentRegion(
+                                                region.id,
+                                                -2,
+                                              )
+                                            }
+                                            style={{
+                                              padding:
+                                                '4px 7px',
+                                            }}
+                                          >
+                                            ↶
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            className="secondary"
+                                            title="Rahmen 2° nach rechts drehen"
+                                            onClick={() =>
+                                              rotateDocumentRegion(
+                                                region.id,
+                                                2,
+                                              )
+                                            }
+                                            style={{
+                                              padding:
+                                                '4px 7px',
+                                            }}
+                                          >
+                                            ↷
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            className="secondary"
+                                            title="Rahmen wieder gerade stellen"
+                                            onClick={() =>
+                                              updateDocumentRegion(
+                                                region.id,
+                                                {
+                                                  angle:
+                                                    0,
+                                                },
+                                              )
+                                            }
+                                            style={{
+                                              padding:
+                                                '4px 7px',
+                                            }}
+                                          >
+                                            0°
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            className="secondary"
+                                            onClick={() =>
+                                              removeDocumentRegion(
+                                                region.id,
+                                              )
+                                            }
+                                            style={{
+                                              padding:
+                                                '4px 8px',
+                                            }}
+                                          >
+                                            ×
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )
+                                  },
+                                )}
+                              </div>
+                            )}
+
+                            <button
+                              className="import-button"
+                              type="button"
+                              disabled={
+                                documentOcrLoading
+                              }
+                              onClick={
+                                recognizeSelectedDocumentAreas
+                              }
+                            >
+                              {documentOcrLoading
+                                ? '⏳ Bereiche werden gelesen …'
+                                : '✨ Alle markierten Bereiche erkennen'}
+                            </button>
+
+                            <button
+                              className="secondary"
+                              type="button"
+                              onClick={() => {
+                                setDocumentRegions(
+                                  [],
+                                )
+                                setDocumentDragStart(
+                                  null,
+                                )
+                              }}
+                              style={{
+                                width:
+                                  '100%',
+                                marginTop:
+                                  '7px',
+                              }}
+                            >
+                              ↺ Alle Markierungen löschen
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    <button
+                      className="import-button"
+                      type="button"
+                      disabled={
+                        documentOcrLoading
+                      }
+                      onClick={
+                        recognizeDocumentText
+                      }
+                    >
+                      {documentOcrLoading
+                        ? '⏳ Text wird erkannt …'
+                        : '🔎 Text automatisch erkennen'}
+                    </button>
+                  </>
+                )}
+
+                {documentOcrProgress && (
+                  <p
+                    style={{
+                      marginTop:
+                        '10px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {
+                      documentOcrProgress
+                    }
+                  </p>
+                )}
+
+                {documentOcrText && (
+                  <>
+                    <label
+                      style={{
+                        display:
+                          'grid',
+                        gap: '7px',
+                        marginTop:
+                          '16px',
+                      }}
+                    >
+                      <strong>
+                        Erkannter Text
+                      </strong>
+
+                      <span
+                        style={{
+                          color:
+                            '#706a62',
+                          fontSize:
+                            '0.86rem',
+                        }}
+                      >
+                        Hier kannst du Fehler
+                        korrigieren. Sind auf
+                        einer Seite mehrere
+                        Rezepte, lösche einfach
+                        den Text der anderen
+                        Rezepte.
+                      </span>
+
+                      <textarea
+                        value={
+                          documentOcrText
+                        }
+                        onChange={(event) => {
+                          setDocumentOcrText(
+                            event.target.value,
+                          )
+                          setRecipePreview(
+                            null,
+                          )
+                          setSaveStatus(
+                            'idle',
+                          )
+                        }}
+                        rows={16}
+                        style={{
+                          width:
+                            '100%',
+                        }}
+                      />
+                    </label>
+
+                    <button
+                      className="import-button"
+                      type="button"
+                      disabled={
+                        importLoading ||
+                        !documentOcrText.trim()
+                      }
+                      onClick={
+                        prepareDocumentRecipe
+                      }
+                    >
+                      {importLoading
+                        ? '⏳ Rezept wird vorbereitet …'
+                        : '🍲 Rezept aus Text vorbereiten'}
+                    </button>
+                  </>
+                )}
+              </>
             ) : (
               <>
                 <p
@@ -8822,59 +12609,221 @@ function App() {
                   />
                 )}
 
-                <h3>
-                  {
-                    recipePreview.title
-                  }
-                </h3>
+                {importMode ===
+                'document' ? (
+                  <>
+                    <h3>
+                      Erkanntes Rezept prüfen
+                    </h3>
 
-                <h4>
-                  Zutaten
-                </h4>
+                    <label
+                      style={{
+                        display:
+                          'grid',
+                        gap: '7px',
+                        marginTop:
+                          '12px',
+                      }}
+                    >
+                      <strong>
+                        Rezepttitel
+                      </strong>
 
-                <ul>
-                  {recipePreview.ingredients.map(
-                    (
-                      ingredient,
-                      index,
-                    ) => (
-                      <li
-                        key={
-                          index
+                      <input
+                        value={
+                          recipePreview.title
                         }
-                      >
-                        {
-                          ingredient
+                        onChange={(event) =>
+                          setRecipePreview({
+                            ...recipePreview,
+                            title:
+                              event.target.value,
+                          })
                         }
-                      </li>
-                    ),
-                  )}
-                </ul>
+                      />
+                    </label>
 
-                <h4>
-                  Zubereitung
-                </h4>
+                    <label
+                      style={{
+                        display:
+                          'grid',
+                        gap: '7px',
+                        marginTop:
+                          '14px',
+                      }}
+                    >
+                      <strong>
+                        Zutaten – eine pro Zeile
+                      </strong>
 
-                <ol>
-                  {recipePreview.instructions.map(
-                    (
-                      instruction,
-                      index,
-                    ) => (
-                      <li
-                        key={
-                          index
+                      <textarea
+                        rows={9}
+                        value={
+                          recipePreview.ingredients.join(
+                            '\n',
+                          )
                         }
-                      >
-                        {
-                          instruction
+                        onChange={(event) =>
+                          setRecipePreview({
+                            ...recipePreview,
+                            ingredients:
+                              event.target.value
+                                .split(
+                                  /\r?\n/,
+                                )
+                                .map(
+                                  (
+                                    value,
+                                  ) =>
+                                    value.trim(),
+                                )
+                                .filter(
+                                  Boolean,
+                                ),
+                          })
                         }
-                      </li>
-                    ),
-                  )}
-                </ol>
+                        style={{
+                          width:
+                            '100%',
+                        }}
+                      />
+                    </label>
 
-                {importNotes && (
+                    <label
+                      style={{
+                        display:
+                          'grid',
+                        gap: '7px',
+                        marginTop:
+                          '14px',
+                      }}
+                    >
+                      <strong>
+                        Zubereitung – ein Schritt pro Zeile
+                      </strong>
+
+                      <textarea
+                        rows={10}
+                        value={
+                          recipePreview.instructions.join(
+                            '\n',
+                          )
+                        }
+                        onChange={(event) =>
+                          setRecipePreview({
+                            ...recipePreview,
+                            instructions:
+                              event.target.value
+                                .split(
+                                  /\r?\n/,
+                                )
+                                .map(
+                                  (
+                                    value,
+                                  ) =>
+                                    value.trim(),
+                                )
+                                .filter(
+                                  Boolean,
+                                ),
+                          })
+                        }
+                        style={{
+                          width:
+                            '100%',
+                        }}
+                      />
+                    </label>
+
+                    <label
+                      style={{
+                        display:
+                          'grid',
+                        gap: '7px',
+                        marginTop:
+                          '14px',
+                      }}
+                    >
+                      <strong>
+                        Tipp / Hinweis
+                      </strong>
+
+                      <textarea
+                        rows={5}
+                        value={
+                          importNotes
+                        }
+                        onChange={(event) =>
+                          setImportNotes(
+                            event.target.value,
+                          )
+                        }
+                        style={{
+                          width:
+                            '100%',
+                        }}
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <h3>
+                      {
+                        recipePreview.title
+                      }
+                    </h3>
+
+                    <h4>
+                      Zutaten
+                    </h4>
+
+                    <ul>
+                      {recipePreview.ingredients.map(
+                        (
+                          ingredient,
+                          index,
+                        ) => (
+                          <li
+                            key={
+                              index
+                            }
+                          >
+                            {
+                              ingredient
+                            }
+                          </li>
+                        ),
+                      )}
+                    </ul>
+
+                    <h4>
+                      Zubereitung
+                    </h4>
+
+                    <ol>
+                      {recipePreview.instructions.map(
+                        (
+                          instruction,
+                          index,
+                        ) => (
+                          <li
+                            key={
+                              index
+                            }
+                          >
+                            {
+                              instruction
+                            }
+                          </li>
+                        ),
+                      )}
+                    </ol>
+                  </>
+                )}
+
+                {importNotes &&
+                  importMode !==
+                    'document' && (
                   <>
                     <h4>
                       Tipp / Hinweis

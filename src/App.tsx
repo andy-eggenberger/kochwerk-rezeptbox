@@ -85,7 +85,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.10.9'
+const APP_VERSION = '0.10.10'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -4948,8 +4948,48 @@ function App() {
     return true
   }
 
+  function centerDocumentViewport(
+    canvas: HTMLElement | null,
+  ) {
+    if (!canvas) {
+      return
+    }
+
+    const viewport =
+      canvas.closest(
+        '[data-region-viewport="true"]',
+      ) as HTMLElement | null
+
+    if (!viewport) {
+      return
+    }
+
+    requestAnimationFrame(
+      () => {
+        viewport.scrollLeft =
+          Math.max(
+            0,
+            (
+              viewport.scrollWidth -
+              viewport.clientWidth
+            ) / 2,
+          )
+
+        viewport.scrollTop =
+          Math.max(
+            0,
+            (
+              viewport.scrollHeight -
+              viewport.clientHeight
+            ) / 2,
+          )
+      },
+    )
+  }
+
   function endDocumentPinch(
     pointerId: number,
+    canvas?: HTMLElement | null,
   ) {
     documentTouchPointers.current.delete(
       pointerId,
@@ -4961,8 +5001,13 @@ function App() {
     ) {
       documentPinchStart.current =
         null
+
+      centerDocumentViewport(
+        canvas ?? null,
+      )
     }
   }
+
 
   async function recognizeSelectedDocumentAreas() {
     if (
@@ -11746,7 +11791,11 @@ function App() {
                           Foto mit zwei Fingern
                           vergrössern/verkleinern.
                           Zusätzlich gibt es unten
-                          − / + / 100%. Beim
+                          − / + / 100% und
+                          🎯 Zentrieren. Nach dem
+                          Zwei-Finger-Zoom wird das
+                          Bild ebenfalls wieder
+                          eingemittet. Beim
                           Rezeptbild ist immer nur
                           eine Markierung aktiv;
                           eine neue ersetzt die
@@ -11933,7 +11982,24 @@ function App() {
 
                               return (
                                 <div
-                                  data-region-canvas="true"
+                                  data-region-viewport="true"
+                                  style={{
+                                    width:
+                                      '100%',
+                                    maxHeight:
+                                      '68vh',
+                                    overflow:
+                                      'auto',
+                                    borderRadius:
+                                      '10px',
+                                    background:
+                                      '#f4f1ed',
+                                    WebkitOverflowScrolling:
+                                      'touch',
+                                  }}
+                                >
+                                  <div
+                                    data-region-canvas="true"
                                   style={{
                                     position:
                                       'relative',
@@ -11947,8 +12013,6 @@ function App() {
                                       'none',
                                     borderRadius:
                                       '10px',
-                                    overflow:
-                                      'hidden',
                                     background:
                                       '#f4f1ed',
                                     cursor:
@@ -12024,6 +12088,7 @@ function App() {
 
                                     endDocumentPinch(
                                       event.pointerId,
+                                      event.currentTarget,
                                     )
 
                                     if (
@@ -12074,6 +12139,7 @@ function App() {
                                   ) => {
                                     endDocumentPinch(
                                       event.pointerId,
+                                      event.currentTarget,
                                     )
                                     setDocumentDragStart(
                                       null,
@@ -12298,6 +12364,7 @@ function App() {
                                       ),
                                     )}
                                 </div>
+                                </div>
                               )
                             })()}
 
@@ -12336,13 +12403,26 @@ function App() {
                                   <button
                                     type="button"
                                     className="secondary"
-                                    onClick={() =>
+                                    onClick={(event) => {
                                       setDocumentZoomForPage(
                                         page.id,
                                         zoom -
                                           0.25,
                                       )
-                                    }
+
+                                      const viewport =
+                                        event.currentTarget
+                                          .closest(
+                                            '.import-modal',
+                                          )
+                                          ?.querySelector(
+                                            '[data-region-canvas="true"]',
+                                          ) as HTMLElement | null
+
+                                      centerDocumentViewport(
+                                        viewport,
+                                      )
+                                    }}
                                   >
                                     −
                                   </button>
@@ -12366,13 +12446,26 @@ function App() {
                                   <button
                                     type="button"
                                     className="secondary"
-                                    onClick={() =>
+                                    onClick={(event) => {
                                       setDocumentZoomForPage(
                                         page.id,
                                         zoom +
                                           0.25,
                                       )
-                                    }
+
+                                      const viewport =
+                                        event.currentTarget
+                                          .closest(
+                                            '.import-modal',
+                                          )
+                                          ?.querySelector(
+                                            '[data-region-canvas="true"]',
+                                          ) as HTMLElement | null
+
+                                      centerDocumentViewport(
+                                        viewport,
+                                      )
+                                    }}
                                   >
                                     +
                                   </button>
@@ -12380,14 +12473,49 @@ function App() {
                                   <button
                                     type="button"
                                     className="secondary"
-                                    onClick={() =>
+                                    onClick={(event) => {
                                       setDocumentZoomForPage(
                                         page.id,
                                         1,
                                       )
-                                    }
+
+                                      const viewport =
+                                        event.currentTarget
+                                          .closest(
+                                            '.import-modal',
+                                          )
+                                          ?.querySelector(
+                                            '[data-region-canvas="true"]',
+                                          ) as HTMLElement | null
+
+                                      centerDocumentViewport(
+                                        viewport,
+                                      )
+                                    }}
                                   >
                                     100%
+                                  </button>
+
+
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    onClick={(event) => {
+                                      const canvas =
+                                        event.currentTarget
+                                          .closest(
+                                            '.import-modal',
+                                          )
+                                          ?.querySelector(
+                                            '[data-region-canvas="true"]',
+                                          ) as HTMLElement | null
+
+                                      centerDocumentViewport(
+                                        canvas,
+                                      )
+                                    }}
+                                  >
+                                    🎯 Zentrieren
                                   </button>
                                 </div>
                               )

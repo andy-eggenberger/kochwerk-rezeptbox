@@ -85,7 +85,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.10.11'
+const APP_VERSION = '0.10.12'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -8173,7 +8173,157 @@ function App() {
 
   function printCurrentRecipe() {
     if (!selectedRecipe) return
-    window.print()
+
+    const isIos =
+      /iPad|iPhone|iPod/i.test(
+        navigator.userAgent,
+      ) ||
+      (
+        navigator.platform ===
+          'MacIntel' &&
+        navigator.maxTouchPoints >
+          1
+      )
+
+    if (!isIos) {
+      window.print()
+      return
+    }
+
+    const printable =
+      document.querySelector(
+        '.print-recipe-page',
+      )
+
+    if (!printable) {
+      window.alert(
+        'Druckansicht konnte nicht vorbereitet werden.',
+      )
+      return
+    }
+
+    /*
+      iOS/PWA: window.print() kann direkt aus
+      einer installierten Web-App ohne sichtbare
+      Reaktion bleiben. Deshalb öffnen wir aus
+      dem echten Tastendruck heraus eine eigene
+      Druckansicht. Dort gibt es zusätzlich einen
+      sichtbaren Druckknopf als sichere Reserve.
+    */
+    const printWindow =
+      window.open(
+        '',
+        '_blank',
+      )
+
+    if (!printWindow) {
+      window.alert(
+        'Die Druckansicht konnte nicht geöffnet werden. Bitte Pop-ups für Kochwerk erlauben.',
+      )
+      return
+    }
+
+    const headHtml =
+      document.head.innerHTML
+
+    printWindow.document.open()
+
+    printWindow.document.write(
+      `<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+  ${headHtml}
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: #fff;
+    }
+
+    body {
+      padding: 12px;
+    }
+
+    .print-recipe-page {
+      display: block !important;
+      margin: 0 auto;
+    }
+
+    .kochwerk-ios-print-actions {
+      position: sticky;
+      top: 0;
+      z-index: 9999;
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      padding: 10px;
+      margin: -12px -12px 12px;
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .kochwerk-ios-print-actions button {
+      appearance: none;
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font: inherit;
+      font-weight: 700;
+      background: #ef6b52;
+      color: #fff;
+    }
+
+    .kochwerk-ios-print-actions button.secondary {
+      background: #ece8e1;
+      color: #333;
+    }
+
+    @media print {
+      body {
+        padding: 0 !important;
+      }
+
+      .kochwerk-ios-print-actions {
+        display: none !important;
+      }
+
+      .print-recipe-page {
+        display: block !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="kochwerk-ios-print-actions">
+    <button
+      type="button"
+      onclick="window.print()"
+    >
+      🖨️ Jetzt drucken / PDF
+    </button>
+
+    <button
+      type="button"
+      class="secondary"
+      onclick="window.close()"
+    >
+      Schliessen
+    </button>
+  </div>
+
+  ${printable.outerHTML}
+</body>
+</html>`,
+    )
+
+    printWindow.document.close()
+    printWindow.focus()
   }
 
   function buildShareText(

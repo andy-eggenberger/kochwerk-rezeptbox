@@ -85,7 +85,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.10.10'
+const APP_VERSION = '0.10.11'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -579,6 +579,12 @@ function App() {
     documentPageZoom,
     setDocumentPageZoom,
   ] = useState<Record<string, number>>({})
+
+
+  const [
+    documentPanMode,
+    setDocumentPanMode,
+  ] = useState(false)
 
   const documentTouchPointers =
     useRef<Map<number, { x: number; y: number }>>(
@@ -2952,6 +2958,7 @@ function App() {
     setDocumentRegions([])
     setDocumentPageRotations({})
     setDocumentPageZoom({})
+    setDocumentPanMode(false)
     setDocumentActivePageId(null)
     setDocumentAreaMode(false)
     setDocumentActiveRegion(
@@ -4881,6 +4888,7 @@ function App() {
           ] ?? 1,
       }
 
+      setDocumentPanMode(true)
       setDocumentDragStart(null)
       setDocumentDragCurrent(null)
     }
@@ -4989,7 +4997,6 @@ function App() {
 
   function endDocumentPinch(
     pointerId: number,
-    canvas?: HTMLElement | null,
   ) {
     documentTouchPointers.current.delete(
       pointerId,
@@ -5001,10 +5008,6 @@ function App() {
     ) {
       documentPinchStart.current =
         null
-
-      centerDocumentViewport(
-        canvas ?? null,
-      )
     }
   }
 
@@ -6184,6 +6187,7 @@ function App() {
       setDocumentRegions([])
       setDocumentPageRotations({})
       setDocumentPageZoom({})
+      setDocumentPanMode(false)
       setDocumentActivePageId(null)
       setDocumentAreaMode(false)
       setDocumentActiveRegion(
@@ -11791,11 +11795,15 @@ function App() {
                           Foto mit zwei Fingern
                           vergrössern/verkleinern.
                           Zusätzlich gibt es unten
-                          − / + / 100% und
-                          🎯 Zentrieren. Nach dem
-                          Zwei-Finger-Zoom wird das
-                          Bild ebenfalls wieder
-                          eingemittet. Beim
+                          − / + / 100%. Nach dem
+                          Zoomen kannst du mit
+                          ✋ Verschieben das Bild
+                          mit einem Finger frei
+                          herumschieben und mit
+                          ✏️ Rahmen setzen wieder
+                          markieren. 🎯 Zentrieren
+                          bleibt als optionale Hilfe.
+                          Beim
                           Rezeptbild ist immer nur
                           eine Markierung aktiv;
                           eine neue ersetzt die
@@ -11990,12 +11998,12 @@ function App() {
                                       '68vh',
                                     overflow:
                                       'auto',
+                                    WebkitOverflowScrolling:
+                                      'touch',
                                     borderRadius:
                                       '10px',
                                     background:
                                       '#f4f1ed',
-                                    WebkitOverflowScrolling:
-                                      'touch',
                                   }}
                                 >
                                   <div
@@ -12008,7 +12016,9 @@ function App() {
                                     minWidth:
                                       '100%',
                                     touchAction:
-                                      'none',
+                                      documentPanMode
+                                        ? 'pan-x pan-y pinch-zoom'
+                                        : 'none',
                                     userSelect:
                                       'none',
                                     borderRadius:
@@ -12031,6 +12041,7 @@ function App() {
                                     )
 
                                     if (
+                                      documentPanMode ||
                                       documentTouchPointers.current.size >
                                         1 ||
                                       documentRegionEdit
@@ -12064,6 +12075,12 @@ function App() {
                                     }
 
                                     if (
+                                      documentPanMode
+                                    ) {
+                                      return
+                                    }
+
+                                    if (
                                       documentRegionEdit
                                     ) {
                                       return
@@ -12088,11 +12105,11 @@ function App() {
 
                                     endDocumentPinch(
                                       event.pointerId,
-                                      event.currentTarget,
                                     )
 
                                     if (
-                                      wasPinching
+                                      wasPinching ||
+                                      documentPanMode
                                     ) {
                                       setDocumentDragStart(
                                         null,
@@ -12139,7 +12156,6 @@ function App() {
                                   ) => {
                                     endDocumentPinch(
                                       event.pointerId,
-                                      event.currentTarget,
                                     )
                                     setDocumentDragStart(
                                       null,
@@ -12478,6 +12494,7 @@ function App() {
                                         page.id,
                                         1,
                                       )
+                                      setDocumentPanMode(false)
 
                                       const viewport =
                                         event.currentTarget
@@ -12496,6 +12513,25 @@ function App() {
                                     100%
                                   </button>
 
+
+                                  <button
+                                    type="button"
+                                    className={
+                                      documentPanMode
+                                        ? 'primary'
+                                        : 'secondary'
+                                    }
+                                    onClick={() =>
+                                      setDocumentPanMode(
+                                        (value) =>
+                                          !value,
+                                      )
+                                    }
+                                  >
+                                    {documentPanMode
+                                      ? '✋ Verschieben'
+                                      : '✏️ Rahmen setzen'}
+                                  </button>
 
                                   <button
                                     type="button"

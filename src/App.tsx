@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
   type ChangeEvent,
 } from 'react'
@@ -84,7 +85,7 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.10.8'
+const APP_VERSION = '0.10.9'
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -572,6 +573,23 @@ function App() {
     startY: number
     original: DocumentRegion
   } | null>(null)
+
+
+  const [
+    documentPageZoom,
+    setDocumentPageZoom,
+  ] = useState<Record<string, number>>({})
+
+  const documentTouchPointers =
+    useRef<Map<number, { x: number; y: number }>>(
+      new Map(),
+    )
+
+  const documentPinchStart =
+    useRef<{
+      distance: number
+      zoom: number
+    } | null>(null)
 
   const [importVideoUrl, setImportVideoUrl] =
     useState('')
@@ -2933,6 +2951,7 @@ function App() {
     setDocumentTitleHint('')
     setDocumentRegions([])
     setDocumentPageRotations({})
+    setDocumentPageZoom({})
     setDocumentActivePageId(null)
     setDocumentAreaMode(false)
     setDocumentActiveRegion(
@@ -3030,6 +3049,17 @@ function App() {
           string,
           DocumentPageRotation
         >,
+      )
+
+      setDocumentPageZoom(
+        Object.fromEntries(
+          nextPages.map(
+            (page) => [
+              page.id,
+              1,
+            ],
+          ),
+        ) as Record<string, number>,
       )
 
       setDocumentSelectedImageId(
@@ -4789,6 +4819,151 @@ function App() {
     )
   }
 
+
+  function clampDocumentZoom(
+    value: number,
+  ) {
+    return Math.max(
+      1,
+      Math.min(4, value),
+    )
+  }
+
+  function setDocumentZoomForPage(
+    pageId: string,
+    value: number,
+  ) {
+    setDocumentPageZoom(
+      (current) => ({
+        ...current,
+        [pageId]:
+          clampDocumentZoom(
+            value,
+          ),
+      }),
+    )
+  }
+
+  function beginDocumentPinch(
+    event: React.PointerEvent<HTMLElement>,
+    pageId: string,
+  ) {
+    documentTouchPointers.current.set(
+      event.pointerId,
+      {
+        x: event.clientX,
+        y: event.clientY,
+      },
+    )
+
+    const values =
+      Array.from(
+        documentTouchPointers.current.values(),
+      )
+
+    if (values.length === 2) {
+      const dx =
+        values[0].x -
+        values[1].x
+      const dy =
+        values[0].y -
+        values[1].y
+
+      documentPinchStart.current = {
+        distance:
+          Math.sqrt(
+            dx * dx +
+              dy * dy,
+          ),
+        zoom:
+          documentPageZoom[
+            pageId
+          ] ?? 1,
+      }
+
+      setDocumentDragStart(null)
+      setDocumentDragCurrent(null)
+    }
+  }
+
+  function moveDocumentPinch(
+    event: React.PointerEvent<HTMLElement>,
+    pageId: string,
+  ) {
+    if (
+      !documentTouchPointers.current.has(
+        event.pointerId,
+      )
+    ) {
+      return false
+    }
+
+    documentTouchPointers.current.set(
+      event.pointerId,
+      {
+        x: event.clientX,
+        y: event.clientY,
+      },
+    )
+
+    const values =
+      Array.from(
+        documentTouchPointers.current.values(),
+      )
+
+    if (
+      values.length !== 2 ||
+      !documentPinchStart.current
+    ) {
+      return false
+    }
+
+    const dx =
+      values[0].x -
+      values[1].x
+    const dy =
+      values[0].y -
+      values[1].y
+
+    const distance =
+      Math.sqrt(
+        dx * dx +
+          dy * dy,
+      )
+
+    const start =
+      documentPinchStart.current
+
+    if (start.distance > 0) {
+      setDocumentZoomForPage(
+        pageId,
+        start.zoom *
+          (
+            distance /
+            start.distance
+          ),
+      )
+    }
+
+    return true
+  }
+
+  function endDocumentPinch(
+    pointerId: number,
+  ) {
+    documentTouchPointers.current.delete(
+      pointerId,
+    )
+
+    if (
+      documentTouchPointers.current.size <
+      2
+    ) {
+      documentPinchStart.current =
+        null
+    }
+  }
+
   async function recognizeSelectedDocumentAreas() {
     if (
       documentPages.length === 0
@@ -5963,6 +6138,7 @@ function App() {
       setDocumentTitleHint('')
       setDocumentRegions([])
       setDocumentPageRotations({})
+      setDocumentPageZoom({})
       setDocumentActivePageId(null)
       setDocumentAreaMode(false)
       setDocumentActiveRegion(
@@ -11565,7 +11741,12 @@ function App() {
                           kannst du jeden Rahmen
                           mit ↶ / ↷ in 2°-Schritten
                           drehen und mit 0° wieder
-                          gerade stellen. Beim
+                          gerade stellen. Am
+                          iPhone/iPad kannst du das
+                          Foto mit zwei Fingern
+                          vergrössern/verkleinern.
+                          Zusätzlich gibt es unten
+                          − / + / 100%. Beim
                           Rezeptbild ist immer nur
                           eine Markierung aktiv;
                           eine neue ersetzt die
@@ -11725,7 +11906,10 @@ function App() {
                                     >
                                       {count >
                                       0
-                                        ? `✓ ${documentRegionLabels[key]} (${count})`
+                                        ? key ===
+                                          'image'
+                                          ? `✓ ${documentRegionLabels[key]}`
+                                          : `✓ ${documentRegionLabels[key]} (${count})`
                                         : `＋ ${documentRegionLabels[key]}`}
                                     </button>
                                   )
@@ -11754,6 +11938,8 @@ function App() {
                                     position:
                                       'relative',
                                     width:
+                                      `${(documentPageZoom[page.id] ?? 1) * 100}%`,
+                                    minWidth:
                                       '100%',
                                     touchAction:
                                       'none',
@@ -11771,15 +11957,22 @@ function App() {
                                   onPointerDown={(
                                     event,
                                   ) => {
+                                    event.currentTarget.setPointerCapture(
+                                      event.pointerId,
+                                    )
+
+                                    beginDocumentPinch(
+                                      event,
+                                      page.id,
+                                    )
+
                                     if (
+                                      documentTouchPointers.current.size >
+                                        1 ||
                                       documentRegionEdit
                                     ) {
                                       return
                                     }
-
-                                    event.currentTarget.setPointerCapture(
-                                      event.pointerId,
-                                    )
 
                                     const point =
                                       getRelativePointer(
@@ -11797,6 +11990,15 @@ function App() {
                                   onPointerMove={(
                                     event,
                                   ) => {
+                                    if (
+                                      moveDocumentPinch(
+                                        event,
+                                        page.id,
+                                      )
+                                    ) {
+                                      return
+                                    }
+
                                     if (
                                       documentRegionEdit
                                     ) {
@@ -11816,6 +12018,26 @@ function App() {
                                   onPointerUp={(
                                     event,
                                   ) => {
+                                    const wasPinching =
+                                      documentTouchPointers.current.size >
+                                      1
+
+                                    endDocumentPinch(
+                                      event.pointerId,
+                                    )
+
+                                    if (
+                                      wasPinching
+                                    ) {
+                                      setDocumentDragStart(
+                                        null,
+                                      )
+                                      setDocumentDragCurrent(
+                                        null,
+                                      )
+                                      return
+                                    }
+
                                     if (
                                       documentRegionEdit
                                     ) {
@@ -11846,6 +12068,20 @@ function App() {
                                     setDocumentDragCurrent(
                                       null,
                                     )
+                                  }}
+                                  onPointerCancel={(
+                                    event,
+                                  ) => {
+                                    endDocumentPinch(
+                                      event.pointerId,
+                                    )
+                                    setDocumentDragStart(
+                                      null,
+                                    )
+                                    setDocumentDragCurrent(
+                                      null,
+                                    )
+                                    finishDocumentRegionEdit()
                                   }}
                                 >
                                   <img
@@ -12030,15 +12266,17 @@ function App() {
                                                   left,
                                                   top,
                                                   width:
-                                                    '10px',
+                                                    '26px',
                                                   height:
-                                                    '10px',
+                                                    '26px',
                                                   borderRadius:
                                                     '50%',
                                                   background:
-                                                    '#ffffffd9',
+                                                    'radial-gradient(circle, #ffffffd9 0 4px, #ef6b52 4px 6px, transparent 6px)',
                                                   border:
-                                                    '2px solid #ef6b52',
+                                                    'none',
+                                                  touchAction:
+                                                    'none',
                                                   transform:
                                                     'translate(-50%, -50%)',
                                                   boxSizing:
@@ -12059,6 +12297,98 @@ function App() {
                                         </div>
                                       ),
                                     )}
+                                </div>
+                              )
+                            })()}
+
+                            {documentActivePageId && (() => {
+                              const page =
+                                documentPages.find(
+                                  (item) =>
+                                    item.id ===
+                                    documentActivePageId,
+                                )
+
+                              if (!page) {
+                                return null
+                              }
+
+                              const zoom =
+                                documentPageZoom[
+                                  page.id
+                                ] ?? 1
+
+                              return (
+                                <div
+                                  style={{
+                                    display:
+                                      'flex',
+                                    justifyContent:
+                                      'center',
+                                    alignItems:
+                                      'center',
+                                    gap:
+                                      '7px',
+                                    marginTop:
+                                      '8px',
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    onClick={() =>
+                                      setDocumentZoomForPage(
+                                        page.id,
+                                        zoom -
+                                          0.25,
+                                      )
+                                    }
+                                  >
+                                    −
+                                  </button>
+
+                                  <span
+                                    style={{
+                                      fontSize:
+                                        '0.8rem',
+                                      fontWeight:
+                                        700,
+                                    }}
+                                  >
+                                    🔍{' '}
+                                    {Math.round(
+                                      zoom *
+                                        100,
+                                    )}
+                                    %
+                                  </span>
+
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    onClick={() =>
+                                      setDocumentZoomForPage(
+                                        page.id,
+                                        zoom +
+                                          0.25,
+                                      )
+                                    }
+                                  >
+                                    +
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    onClick={() =>
+                                      setDocumentZoomForPage(
+                                        page.id,
+                                        1,
+                                      )
+                                    }
+                                  >
+                                    100%
+                                  </button>
                                 </div>
                               )
                             })()}

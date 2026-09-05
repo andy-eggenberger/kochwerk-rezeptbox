@@ -8127,19 +8127,29 @@ function App() {
       preparationChars +
       notes.length * 0.85
 
-    if (totalWeight > 6100) {
+    /*
+      Druckziel: 1 Rezept = 1 A4-Seite im Hochformat.
+      Die Stufen greifen bewusst früher als bisher,
+      weil iPhone/iOS beim Drucken stärker umbricht
+      als Firefox am PC.
+    */
+    if (totalWeight > 5200) {
+      return 'print-density-micro'
+    }
+
+    if (totalWeight > 3800) {
       return 'print-density-ultra'
     }
 
-    if (totalWeight > 4300) {
+    if (totalWeight > 2600) {
       return 'print-density-very-compact'
     }
 
-    if (totalWeight > 2800) {
+    if (totalWeight > 1750) {
       return 'print-density-compact'
     }
 
-    if (totalWeight < 1500) {
+    if (totalWeight < 950) {
       return 'print-density-short'
     }
 
@@ -8173,157 +8183,7 @@ function App() {
 
   function printCurrentRecipe() {
     if (!selectedRecipe) return
-
-    const isIos =
-      /iPad|iPhone|iPod/i.test(
-        navigator.userAgent,
-      ) ||
-      (
-        navigator.platform ===
-          'MacIntel' &&
-        navigator.maxTouchPoints >
-          1
-      )
-
-    if (!isIos) {
-      window.print()
-      return
-    }
-
-    const printable =
-      document.querySelector(
-        '.print-recipe-page',
-      )
-
-    if (!printable) {
-      window.alert(
-        'Druckansicht konnte nicht vorbereitet werden.',
-      )
-      return
-    }
-
-    /*
-      iOS/PWA: window.print() kann direkt aus
-      einer installierten Web-App ohne sichtbare
-      Reaktion bleiben. Deshalb öffnen wir aus
-      dem echten Tastendruck heraus eine eigene
-      Druckansicht. Dort gibt es zusätzlich einen
-      sichtbaren Druckknopf als sichere Reserve.
-    */
-    const printWindow =
-      window.open(
-        '',
-        '_blank',
-      )
-
-    if (!printWindow) {
-      window.alert(
-        'Die Druckansicht konnte nicht geöffnet werden. Bitte Pop-ups für Kochwerk erlauben.',
-      )
-      return
-    }
-
-    const headHtml =
-      document.head.innerHTML
-
-    printWindow.document.open()
-
-    printWindow.document.write(
-      `<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  />
-  ${headHtml}
-  <style>
-    html,
-    body {
-      margin: 0;
-      padding: 0;
-      background: #fff;
-    }
-
-    body {
-      padding: 12px;
-    }
-
-    .print-recipe-page {
-      display: block !important;
-      margin: 0 auto;
-    }
-
-    .kochwerk-ios-print-actions {
-      position: sticky;
-      top: 0;
-      z-index: 9999;
-      display: flex;
-      gap: 8px;
-      justify-content: center;
-      padding: 10px;
-      margin: -12px -12px 12px;
-      background: #fff;
-      border-bottom: 1px solid #ddd;
-    }
-
-    .kochwerk-ios-print-actions button {
-      appearance: none;
-      border: 0;
-      border-radius: 10px;
-      padding: 10px 16px;
-      font: inherit;
-      font-weight: 700;
-      background: #ef6b52;
-      color: #fff;
-    }
-
-    .kochwerk-ios-print-actions button.secondary {
-      background: #ece8e1;
-      color: #333;
-    }
-
-    @media print {
-      body {
-        padding: 0 !important;
-      }
-
-      .kochwerk-ios-print-actions {
-        display: none !important;
-      }
-
-      .print-recipe-page {
-        display: block !important;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="kochwerk-ios-print-actions">
-    <button
-      type="button"
-      onclick="window.print()"
-    >
-      🖨️ Jetzt drucken / PDF
-    </button>
-
-    <button
-      type="button"
-      class="secondary"
-      onclick="window.close()"
-    >
-      Schliessen
-    </button>
-  </div>
-
-  ${printable.outerHTML}
-</body>
-</html>`,
-    )
-
-    printWindow.document.close()
-    printWindow.focus()
+    window.print()
   }
 
   function buildShareText(
@@ -8673,6 +8533,7 @@ function App() {
             display: block !important;
             position: static !important;
             width: 196mm !important;
+            max-width: 196mm !important;
             box-sizing: border-box !important;
             color: #222 !important;
             background: #fff !important;
@@ -8828,11 +8689,29 @@ function App() {
           }
 
           .print-density-normal {
-            font-size: 11.7pt !important;
+            font-size: 10.7pt !important;
+          }
+
+          .print-density-normal .print-recipe-title {
+            font-size: 20.5pt !important;
+          }
+
+          .print-density-normal .print-recipe-image {
+            height: 31mm !important;
+          }
+
+          .print-density-normal .print-recipe-main {
+            gap: 5mm !important;
+            margin-top: 3.5mm !important;
+          }
+
+          .print-density-normal .print-recipe-block li {
+            margin-bottom: 0.9mm !important;
+            line-height: 1.18 !important;
           }
 
           .print-density-compact {
-            font-size: 10.5pt !important;
+            font-size: 9.6pt !important;
           }
 
           .print-density-compact .print-recipe-title {
@@ -8854,7 +8733,7 @@ function App() {
           }
 
           .print-density-very-compact {
-            font-size: 9.6pt !important;
+            font-size: 8.7pt !important;
           }
 
           .print-density-very-compact .print-recipe-header {
@@ -8887,7 +8766,7 @@ function App() {
           }
 
           .print-density-ultra {
-            font-size: 8.9pt !important;
+            font-size: 8.0pt !important;
           }
 
           .print-density-ultra .print-recipe-header {
@@ -8934,6 +8813,82 @@ function App() {
             margin-top: 2mm !important;
             padding-top: 1.2mm !important;
             font-size: 7.5pt !important;
+          }
+
+
+          .print-density-micro {
+            font-size: 7.2pt !important;
+          }
+
+          .print-density-micro .print-recipe-header {
+            grid-template-columns: minmax(0, 1fr) 34mm !important;
+            gap: 3mm !important;
+            padding-bottom: 1.8mm !important;
+          }
+
+          .print-density-micro .print-recipe-brand {
+            margin-bottom: 1mm !important;
+            font-size: 6.8pt !important;
+          }
+
+          .print-density-micro .print-recipe-title {
+            margin-bottom: 1.2mm !important;
+            font-size: 14.5pt !important;
+            line-height: 1 !important;
+          }
+
+          .print-density-micro .print-recipe-meta {
+            gap: 0.7mm 2mm !important;
+            font-size: 7pt !important;
+            line-height: 1.05 !important;
+          }
+
+          .print-density-micro .print-recipe-image {
+            width: 34mm !important;
+            height: 20mm !important;
+            border-radius: 1.5mm !important;
+          }
+
+          .print-density-micro .print-recipe-main {
+            gap: 3mm !important;
+            margin-top: 1.8mm !important;
+          }
+
+          .print-density-micro .print-recipe-block h3 {
+            margin-bottom: 0.6mm !important;
+            padding-bottom: 0.5mm !important;
+            font-size: 9.5pt !important;
+          }
+
+          .print-density-micro .print-recipe-block ul,
+          .print-density-micro .print-recipe-block ol {
+            padding-left: 4mm !important;
+          }
+
+          .print-density-micro .print-recipe-block li {
+            margin-bottom: 0.15mm !important;
+            line-height: 1.02 !important;
+          }
+
+          .print-density-micro .print-recipe-notes {
+            margin-top: 1mm !important;
+            padding: 1mm 1.5mm !important;
+            border-radius: 1.5mm !important;
+          }
+
+          .print-density-micro .print-recipe-notes h3 {
+            margin-bottom: 0.5mm !important;
+            font-size: 9pt !important;
+          }
+
+          .print-density-micro .print-recipe-notes p {
+            line-height: 1.04 !important;
+          }
+
+          .print-density-micro .print-recipe-footer {
+            margin-top: 1mm !important;
+            padding-top: 0.8mm !important;
+            font-size: 6.5pt !important;
           }
         }
       `}</style>

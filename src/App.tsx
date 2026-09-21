@@ -85,7 +85,35 @@ type BackupData = {
   collections: Collection[]
 }
 
-const APP_VERSION = '0.10.12'
+type OcrWorker =
+  Awaited<
+    ReturnType<
+      typeof createWorker
+    >
+  >
+
+type OcrLineCandidate = {
+  text?: unknown
+  bbox?: {
+    x0?: unknown
+    y0?: unknown
+    x1?: unknown
+    y1?: unknown
+  }
+}
+
+type OcrPageData = {
+  blocks?: Array<{
+    paragraphs?: Array<{
+      lines?: OcrLineCandidate[]
+    }>
+  }> | null
+}
+
+const APP_VERSION = '0.10.13'
+
+const RECIPE_IMAGE_MAX_EDGE = 1400
+const RECIPE_IMAGE_JPEG_QUALITY = 0.82
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -375,8 +403,12 @@ function App() {
   const [editImageUrl, setEditImageUrl] = useState('')
   const [editFavorite, setEditFavorite] = useState(false)
 
+  const [brokenRecipeImages, setBrokenRecipeImages] =
+    useState<Set<number>>(new Set())
+
   const [newTitle, setNewTitle] = useState('')
   const [newVideoUrl, setNewVideoUrl] = useState('')
+  const [newImageUrl, setNewImageUrl] = useState('')
   const [newServings, setNewServings] = useState('')
   const [newTime, setNewTime] = useState('')
 
@@ -2826,6 +2858,183 @@ function App() {
     )
   }
 
+  async function compressRecipeImage(
+    blob: Blob,
+  ) {
+    const objectUrl =
+      URL.createObjectURL(blob)
+
+    try {
+      const image =
+        await loadImageFromDataUrl(
+          objectUrl,
+        )
+
+      const longestEdge =
+        Math.max(
+          image.naturalWidth,
+          image.naturalHeight,
+        )
+
+      const scale =
+        longestEdge > RECIPE_IMAGE_MAX_EDGE
+          ? RECIPE_IMAGE_MAX_EDGE /
+            longestEdge
+          : 1
+
+      const width =
+        Math.max(
+          1,
+          Math.round(
+            image.naturalWidth *
+              scale,
+          ),
+        )
+
+      const height =
+        Math.max(
+          1,
+          Math.round(
+            image.naturalHeight *
+              scale,
+          ),
+        )
+
+      const canvas =
+        document.createElement(
+          'canvas',
+        )
+
+      canvas.width = width
+      canvas.height = height
+
+      const context =
+        canvas.getContext(
+          '2d',
+          {
+            alpha: false,
+          },
+        )
+
+      if (!context) {
+        return readFileAsDataUrl(
+          blob,
+        )
+      }
+
+      context.fillStyle =
+        '#ffffff'
+
+      context.fillRect(
+        0,
+        0,
+        width,
+        height,
+      )
+
+      context.imageSmoothingEnabled =
+        true
+
+      context.imageSmoothingQuality =
+        'high'
+
+      context.drawImage(
+        image,
+        0,
+        0,
+        width,
+        height,
+      )
+
+      return canvas.toDataURL(
+        'image/jpeg',
+        RECIPE_IMAGE_JPEG_QUALITY,
+      )
+    } finally {
+      URL.revokeObjectURL(
+        objectUrl,
+      )
+    }
+  }
+
+  async function makeRecipeImagePermanent(
+    value?: string,
+  ) {
+    const imageUrl =
+      value?.trim() ?? ''
+
+    if (
+      !imageUrl ||
+      imageUrl.startsWith(
+        'data:',
+      )
+    ) {
+      return {
+        imageUrl:
+          imageUrl || undefined,
+        storedPermanently:
+          Boolean(imageUrl),
+      }
+    }
+
+    try {
+      const fetchUrl =
+        /^https?:\/\//i.test(
+          imageUrl,
+        )
+          ? 'https://kochwerk-import-worker.andy-kochwerk.workers.dev/image-proxy?url=' +
+            encodeURIComponent(
+              imageUrl,
+            )
+          : imageUrl
+
+      const response =
+        await fetch(
+          fetchUrl,
+          {
+            cache: 'no-store',
+          },
+        )
+
+      if (!response.ok) {
+        throw new Error(
+          `Bildabruf fehlgeschlagen: ${response.status}`,
+        )
+      }
+
+      const blob =
+        await response.blob()
+
+      if (
+        !blob.type.startsWith(
+          'image/',
+        )
+      ) {
+        throw new Error(
+          'Die Adresse liefert keine Bilddatei.',
+        )
+      }
+
+      return {
+        imageUrl:
+          await compressRecipeImage(
+            blob,
+          ),
+        storedPermanently: true,
+      }
+    } catch (error) {
+      console.warn(
+        'Rezeptbild konnte nicht dauerhaft gespeichert werden:',
+        error,
+      )
+
+      return {
+        imageUrl,
+        storedPermanently: false,
+      }
+    }
+  }
+
   async function renderPdfFileToPages(
     file: File,
   ) {
@@ -3301,13 +3510,13 @@ function App() {
   }
 
   function collectOcrLineBoxes(
-    data: any,
+    data: OcrPageData,
   ) {
     const result:
       OcrLineBox[] = []
 
     const addLine = (
-      line: any,
+      line: OcrLineCandidate,
     ) => {
       const text =
         String(
@@ -3952,7 +4161,7 @@ function App() {
   }
 
   async function recognizeTitleCrop(
-    worker: any,
+    worker: OcrWorker,
     preparedImage: string,
   ) {
     try {
@@ -4532,7 +4741,7 @@ function App() {
   }
 
 
-  async function useDocumentRegionAsRecipeImage(
+  async function selectDocumentRegionAsRecipeImage(
     region: DocumentRegion,
   ) {
     const page =
@@ -5136,7 +5345,7 @@ function App() {
           region.kind ===
           'image'
         ) {
-          await useDocumentRegionAsRecipeImage(
+          await selectDocumentRegionAsRecipeImage(
             region,
           )
           continue
@@ -5161,9 +5370,7 @@ function App() {
           )
 
         const result =
-          await (
-            worker as any
-          ).recognize(
+          await worker.recognize(
             prepared,
             {
               rotateAuto:
@@ -5325,9 +5532,7 @@ function App() {
           )
 
         const result =
-          await (
-            worker as any
-          ).recognize(
+          await worker.recognize(
             preparedImage,
             {
               rotateAuto:
@@ -5528,7 +5733,7 @@ function App() {
     }
   }
 
-  function useDocumentPageAsRecipeImage(
+  function selectDocumentPageAsRecipeImage(
     page: ScannedPage,
   ) {
     setDocumentSelectedImageId(
@@ -6107,6 +6312,12 @@ function App() {
 
       const now = new Date()
 
+      const preparedImage =
+        await makeRecipeImagePermanent(
+          importImageUrl ||
+            recipePreview.image,
+        )
+
       await db.recipes.add({
         title: recipePreview.title,
 
@@ -6163,8 +6374,7 @@ function App() {
           undefined,
 
         sourceImageUrl:
-          importImageUrl ||
-          recipePreview.image,
+          preparedImage.imageUrl,
 
         imageIds: [],
 
@@ -6175,6 +6385,15 @@ function App() {
       })
 
       setSaveStatus('saved')
+
+      if (
+        preparedImage.imageUrl &&
+        !preparedImage.storedPermanently
+      ) {
+        setImportMessage(
+          '✓ Rezept gespeichert. Das Titelbild konnte jedoch nicht dauerhaft übernommen werden. Bitte das Rezept öffnen, bearbeiten und ein Bild vom Gerät auswählen.',
+        )
+      }
       setImportUrl('')
       setFacebookText('')
       setImportVideoUrl('')
@@ -6473,6 +6692,11 @@ function App() {
   async function saveEdit() {
     if (!selectedRecipe?.id) return
 
+    const preparedImage =
+      await makeRecipeImagePermanent(
+        editImageUrl,
+      )
+
     const ingredients =
       editIngredients
         .split('\n')
@@ -6536,8 +6760,7 @@ function App() {
           undefined,
 
         sourceImageUrl:
-          editImageUrl.trim() ||
-          undefined,
+          preparedImage.imageUrl,
 
         favorite:
           editFavorite,
@@ -6556,6 +6779,28 @@ function App() {
       setSelectedRecipe(updated)
     }
 
+    setBrokenRecipeImages(
+      (current) => {
+        const next =
+          new Set(current)
+
+        next.delete(
+          selectedRecipe.id!,
+        )
+
+        return next
+      },
+    )
+
+    if (
+      preparedImage.imageUrl &&
+      !preparedImage.storedPermanently
+    ) {
+      window.alert(
+        'Das Rezept wurde gespeichert. Das verlinkte Bild konnte aber nicht dauerhaft übernommen werden. Bitte ein Bild vom Gerät auswählen.',
+      )
+    }
+
     setShowEdit(false)
 
     await loadRecipes()
@@ -6564,6 +6809,7 @@ function App() {
   function openNewRecipe() {
     setNewTitle('')
     setNewVideoUrl('')
+    setNewImageUrl('')
     setNewServings('')
     setNewTime('')
     setNewIngredients('')
@@ -6573,6 +6819,61 @@ function App() {
     setNewRecipeMessage('')
 
     setShowNewRecipe(true)
+  }
+
+  async function handleNewRecipeImageFile(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file =
+      event.target.files?.[0]
+
+    event.target.value = ''
+
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      setNewRecipeMessage(
+        'Bitte eine Bilddatei auswählen.',
+      )
+      return
+    }
+
+    setNewImageUrl(
+      await readFileAsDataUrl(
+        file,
+      ),
+    )
+
+    setNewRecipeMessage('')
+  }
+
+  async function handleNewRecipeImageDrop(
+    event: React.DragEvent<HTMLDivElement>,
+  ) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const dropped =
+      getDroppedImageSource(
+        event,
+      )
+
+    if (!dropped) {
+      setNewRecipeMessage(
+        'Das gezogene Element konnte nicht als Bild erkannt werden.',
+      )
+      return
+    }
+
+    setNewImageUrl(
+      dropped.type === 'url'
+        ? dropped.url
+        : await readFileAsDataUrl(
+            dropped.file,
+          ),
+    )
+
+    setNewRecipeMessage('')
   }
 
   async function saveNewRecipe() {
@@ -6608,6 +6909,11 @@ function App() {
     const now =
       new Date()
 
+    const preparedImage =
+      await makeRecipeImagePermanent(
+        newImageUrl,
+      )
+
     const newId =
       await db.recipes.add({
         title,
@@ -6639,6 +6945,9 @@ function App() {
           newVideoUrl.trim() ||
           undefined,
 
+        sourceImageUrl:
+          preparedImage.imageUrl,
+
         imageIds: [],
 
         favorite: false,
@@ -6661,6 +6970,15 @@ function App() {
     if (createdRecipe) {
       setSelectedRecipe(
         createdRecipe,
+      )
+    }
+
+    if (
+      preparedImage.imageUrl &&
+      !preparedImage.storedPermanently
+    ) {
+      window.alert(
+        'Das Rezept wurde gespeichert. Das verlinkte Bild konnte aber nicht dauerhaft übernommen werden. Bitte das Rezept bearbeiten und ein Bild vom Gerät auswählen.',
       )
     }
   }
@@ -7821,7 +8139,11 @@ function App() {
                   )
                 }
               >
-                {recipe.sourceImageUrl ? (
+                {recipe.sourceImageUrl &&
+                (!recipe.id ||
+                  !brokenRecipeImages.has(
+                    recipe.id,
+                  )) ? (
                   <img
                     src={
                       recipe.sourceImageUrl
@@ -7830,6 +8152,22 @@ function App() {
                       recipe.title
                     }
                     className="recipe-card-image"
+                    onError={() => {
+                      if (!recipe.id) return
+
+                      setBrokenRecipeImages(
+                        (current) => {
+                          const next =
+                            new Set(current)
+
+                          next.add(
+                            recipe.id!,
+                          )
+
+                          return next
+                        },
+                      )
+                    }}
                   />
                 ) : (
                   <div className="recipe-card-placeholder">
@@ -8969,13 +9307,33 @@ function App() {
                   </div>
                 </div>
 
-                {selectedRecipe.sourceImageUrl && (
+                {selectedRecipe.sourceImageUrl &&
+                  (!selectedRecipe.id ||
+                    !brokenRecipeImages.has(
+                      selectedRecipe.id,
+                    )) && (
                   <img
                     className="print-recipe-image"
                     src={
                       selectedRecipe.sourceImageUrl
                     }
                     alt=""
+                    onError={() => {
+                      if (!selectedRecipe.id) return
+
+                      setBrokenRecipeImages(
+                        (current) => {
+                          const next =
+                            new Set(current)
+
+                          next.add(
+                            selectedRecipe.id!,
+                          )
+
+                          return next
+                        },
+                      )
+                    }}
                   />
                 )}
               </div>
@@ -9128,7 +9486,25 @@ function App() {
               </div>
             </div>
 
-            {selectedRecipe.sourceImageUrl && (
+            {selectedRecipe.id &&
+              brokenRecipeImages.has(
+                selectedRecipe.id,
+              ) && (
+              <div
+                className="import-message"
+                style={{
+                  marginBottom: '16px',
+                }}
+              >
+                ⚠️ Das bisherige Titelbild ist nicht mehr erreichbar. Öffne „Bearbeiten“ und wähle ein neues Bild vom Gerät aus.
+              </div>
+            )}
+
+            {selectedRecipe.sourceImageUrl &&
+              (!selectedRecipe.id ||
+                !brokenRecipeImages.has(
+                  selectedRecipe.id,
+                )) && (
               <img
                 src={
                   selectedRecipe.sourceImageUrl
@@ -9137,6 +9513,22 @@ function App() {
                   selectedRecipe.title
                 }
                 className="recipe-detail-image"
+                onError={() => {
+                  if (!selectedRecipe.id) return
+
+                  setBrokenRecipeImages(
+                    (current) => {
+                      const next =
+                        new Set(current)
+
+                      next.add(
+                        selectedRecipe.id!,
+                      )
+
+                      return next
+                    },
+                  )
+                }}
               />
             )}
 
@@ -11799,7 +12191,7 @@ function App() {
                               className="secondary"
                               type="button"
                               onClick={() =>
-                                useDocumentPageAsRecipeImage(
+                                selectDocumentPageAsRecipeImage(
                                   page,
                                 )
                               }
@@ -13602,6 +13994,100 @@ function App() {
                 placeholder="https://..."
               />
             </label>
+
+            <section
+              onDrop={
+                handleNewRecipeImageDrop
+              }
+              onDragOver={(event) =>
+                event.preventDefault()
+              }
+              style={{
+                padding: '16px',
+                marginBottom: '16px',
+                border: '2px dashed #b9b09f',
+                borderRadius: '16px',
+                background: '#faf8f5',
+              }}
+            >
+              <h3
+                style={{
+                  margin: '0 0 8px',
+                  fontSize: '1rem',
+                }}
+              >
+                🖼️ Titelbild (optional)
+              </h3>
+
+              <p
+                style={{
+                  margin: '0 0 14px',
+                  color: '#706a62',
+                  lineHeight: 1.4,
+                }}
+              >
+                Bild vom Gerät auswählen, hineinziehen oder einen Bild-Link einfügen.
+              </p>
+
+              <label>
+                Bild vom Gerät auswählen
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={
+                    handleNewRecipeImageFile
+                  }
+                />
+              </label>
+
+              <label>
+                Bild-Link
+
+                <input
+                  type="url"
+                  value={newImageUrl}
+                  onChange={(event) =>
+                    setNewImageUrl(
+                      event.target.value,
+                    )
+                  }
+                  placeholder="https://..."
+                />
+              </label>
+
+              {newImageUrl && (
+                <div
+                  style={{
+                    marginTop: '10px',
+                  }}
+                >
+                  <img
+                    src={newImageUrl}
+                    alt="Vorschau"
+                    style={{
+                      width: '100%',
+                      maxHeight: '240px',
+                      objectFit: 'cover',
+                      borderRadius: '14px',
+                    }}
+                  />
+
+                  <button
+                    className="delete-button"
+                    type="button"
+                    style={{
+                      marginTop: '10px',
+                    }}
+                    onClick={() =>
+                      setNewImageUrl('')
+                    }
+                  >
+                    🗑️ Bild entfernen
+                  </button>
+                </div>
+              )}
+            </section>
 
             <label>
               Portionen / Menge

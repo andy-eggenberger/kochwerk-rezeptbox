@@ -15,6 +15,7 @@ export default defineConfig({
         name: 'Kochwerk – meine Rezeptbox',
         short_name: 'Kochwerk',
         description: 'Moderne Rezeptverwaltung als Web-App',
+        lang: 'de-CH',
 
         theme_color: '#ffffff',
         background_color: '#ffffff',

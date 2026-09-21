@@ -110,10 +110,46 @@ type OcrPageData = {
   }> | null
 }
 
-const APP_VERSION = '0.10.13'
+const APP_VERSION = '0.10.14'
 
 const RECIPE_IMAGE_MAX_EDGE = 1400
 const RECIPE_IMAGE_JPEG_QUALITY = 0.82
+
+async function readNasJson<T>(
+  response: Response,
+): Promise<T> {
+  const responseText =
+    await response.text()
+
+  try {
+    return JSON.parse(
+      responseText,
+    ) as T
+  } catch {
+    const responseSize =
+      new TextEncoder().encode(
+        responseText,
+      ).byteLength
+
+    throw new Error(
+      `Der NAS lieferte keine vollständigen JSON-Daten (HTTP ${response.status}, ${responseSize.toLocaleString('de-CH')} Bytes).`,
+    )
+  }
+}
+
+function nasErrorMessage(
+  error: unknown,
+  fallback: string,
+) {
+  if (
+    error instanceof Error &&
+    error.message.trim()
+  ) {
+    return error.message
+  }
+
+  return fallback
+}
 
 const CATEGORY_ICONS = [
   '🍽️',
@@ -1203,14 +1239,14 @@ function App() {
         )
 
       const pullResult =
-        await pullResponse.json() as {
+        await readNasJson<{
           ok?: boolean
           exists?: boolean
           revision?: string | null
           updatedAt?: string | null
           data?: BackupData | null
           error?: string
-        }
+        }>(pullResponse)
 
       if (
         !pullResponse.ok ||
@@ -1253,6 +1289,9 @@ function App() {
           )
           setNasSyncStatus(
             'synced',
+          )
+          setNasMessage(
+            '✓ NAS-Synchronisation erfolgreich. Der lokale Stand und der NAS sind identisch.',
           )
           return
         }
@@ -1305,6 +1344,9 @@ function App() {
         setNasSyncStatus(
           'synced',
         )
+        setNasMessage(
+          '✓ NAS-Synchronisation erfolgreich. Der lokale Stand wurde auf den NAS übertragen.',
+        )
         return
       }
 
@@ -1349,12 +1391,11 @@ function App() {
           setNasSyncStatus(
             'synced',
           )
-
-          if (initialRun) {
-            setNasMessage(
-              '✓ Automatische NAS-Synchronisation eingerichtet.',
-            )
-          }
+          setNasMessage(
+            initialRun
+              ? '✓ Automatische NAS-Synchronisation eingerichtet.'
+              : '✓ NAS-Synchronisation erfolgreich. Der lokale Stand und der NAS sind identisch.',
+          )
         } else {
           setNasSyncStatus(
             'conflict',
@@ -1384,6 +1425,9 @@ function App() {
         )
         setNasSyncStatus(
           'synced',
+        )
+        setNasMessage(
+          '✓ NAS-Synchronisation erfolgreich. Es waren keine Änderungen vorhanden.',
         )
         return
       }
@@ -1454,6 +1498,9 @@ function App() {
         setNasSyncStatus(
           'synced',
         )
+        setNasMessage(
+          '✓ NAS-Synchronisation erfolgreich. Lokale Änderungen wurden auf den NAS übertragen.',
+        )
         return
       }
 
@@ -1472,6 +1519,9 @@ function App() {
         setNasSyncStatus(
           'synced',
         )
+        setNasMessage(
+          '✓ NAS-Synchronisation erfolgreich. Der neuere NAS-Stand wurde auf dieses Gerät übernommen.',
+        )
         return
       }
 
@@ -1484,6 +1534,9 @@ function App() {
         )
         setNasSyncStatus(
           'synced',
+        )
+        setNasMessage(
+          '✓ NAS-Synchronisation erfolgreich. Der lokale Stand und der NAS sind identisch.',
         )
         return
       }
@@ -1501,6 +1554,9 @@ function App() {
       )
       setNasSyncStatus(
         'error',
+      )
+      setNasMessage(
+        `NAS-Synchronisation fehlgeschlagen: ${nasErrorMessage(error, 'Unbekannter Fehler')}`,
       )
     }
   }
@@ -1526,15 +1582,6 @@ function App() {
       cleanKey,
       false,
     )
-
-    if (
-      nasSyncStatus !==
-      'conflict'
-    ) {
-      setNasMessage(
-        'Automatische Synchronisation wurde geprüft.',
-      )
-    }
   }
 
   function saveNasSettings() {
@@ -1606,7 +1653,7 @@ function App() {
         )
 
       const result =
-        await response.json() as {
+        await readNasJson<{
           ok?: boolean
           service?: string
           apiVersion?: number
@@ -1614,7 +1661,7 @@ function App() {
           revision?: string | null
           updatedAt?: string | null
           error?: string
-        }
+        }>(response)
 
       if (
         response.ok &&
@@ -1652,7 +1699,7 @@ function App() {
       )
 
       setNasMessage(
-        'NAS konnte nicht erreicht werden. Bitte Adresse, Schlüssel und Internetverbindung prüfen.',
+        `NAS-Verbindungstest fehlgeschlagen: ${nasErrorMessage(error, 'Bitte Adresse, Schlüssel und Internetverbindung prüfen.')}`,
       )
     } finally {
       setNasTesting(false)
@@ -1839,7 +1886,7 @@ function App() {
         )
 
       const result =
-        await response.json() as {
+        await readNasJson<{
           ok?: boolean
           exists?: boolean
           revision?: string | null
@@ -1850,7 +1897,7 @@ function App() {
             collections?: unknown[]
           } | null
           error?: string
-        }
+        }>(response)
 
       if (
         response.ok &&
@@ -1932,7 +1979,7 @@ function App() {
       )
 
       setNasMessage(
-        'NAS-Stand konnte nicht gelesen werden. Bitte Verbindung prüfen.',
+        `NAS-Stand konnte nicht gelesen werden: ${nasErrorMessage(error, 'Unbekannter Fehler')}`,
       )
     } finally {
       setNasPullChecking(false)

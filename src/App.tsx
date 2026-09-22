@@ -28,6 +28,14 @@ import {
   type Collection,
 } from './db/database'
 
+import {
+  dataUrlToBlob,
+  getRecipeImageBlob,
+  resolveRecipeImageBlob,
+  storeRecipeImageBlob,
+  storeRecipeImageDataUrl,
+} from './db/recipeAssets'
+
 import './App.css'
 
 GlobalWorkerOptions.workerSrc =
@@ -110,10 +118,72 @@ type OcrPageData = {
   }> | null
 }
 
-const APP_VERSION = '0.10.14'
+const APP_VERSION = '0.10.15'
 
 const RECIPE_IMAGE_MAX_EDGE = 1400
 const RECIPE_IMAGE_JPEG_QUALITY = 0.82
+
+type RecipeImageViewProps = {
+  recipe: Recipe
+  className: string
+  alt: string
+  onError?: () => void
+}
+
+function RecipeImageView({
+  recipe,
+  className,
+  alt,
+  onError,
+}: RecipeImageViewProps) {
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    let objectUrl: string | null = null
+
+    if (!recipe.sourceImageId) {
+      return () => {
+        active = false
+      }
+    }
+
+    void resolveRecipeImageBlob(recipe.sourceImageId)
+      .then((blob) => {
+        if (!active || !blob) {
+          if (active) setLoadFailed(true)
+          return
+        }
+
+        objectUrl = URL.createObjectURL(blob)
+        setResolvedUrl(objectUrl)
+      })
+      .catch(() => {
+        if (active) setLoadFailed(true)
+      })
+
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [recipe.sourceImageId])
+
+  const imageUrl = recipe.sourceImageId
+    ? resolvedUrl
+    : recipe.sourceImageUrl ?? null
+
+  if (!imageUrl || loadFailed) return null
+
+  return (
+    <img
+      src={imageUrl}
+      alt={alt}
+      className={className}
+      onError={onError}
+    />
+  )
+}
 
 async function readNasJson<T>(
   response: Response,
@@ -149,6 +219,14 @@ function nasErrorMessage(
   }
 
   return fallback
+}
+
+function safeFileName(value: string) {
+  return value
+    .trim()
+    .toLocaleLowerCase('de-CH')
+    .replace(/[^a-z0-9äöüéèàç]+/gi, '-')
+    .replace(/^-+|-+$/g, '') || 'rezept'
 }
 
 const CATEGORY_ICONS = [
@@ -437,6 +515,7 @@ function App() {
   const [editSourceName, setEditSourceName] = useState('')
   const [editVideoUrl, setEditVideoUrl] = useState('')
   const [editImageUrl, setEditImageUrl] = useState('')
+  const [editImageChanged, setEditImageChanged] = useState(false)
   const [editFavorite, setEditFavorite] = useState(false)
 
   const [brokenRecipeImages, setBrokenRecipeImages] =
@@ -1042,6 +1121,8 @@ function App() {
   }
 
   async function readLocalSnapshot(): Promise<BackupData> {
+    await migrateLegacyRecipeImages()
+
     const [
       localRecipes,
       localCategories,
@@ -1060,6 +1141,116 @@ function App() {
       recipes: localRecipes,
       categories: localCategories,
       collections: localCollections,
+    }
+  }
+
+  async function migrateLegacyRecipeImages() {
+    const legacyRecipes = await db.recipes
+      .filter(
+        (recipe) =>
+          !recipe.sourceImageId &&
+          Boolean(recipe.sourceImageUrl?.startsWith('data:')),
+      )
+      .toArray()
+
+    for (const recipe of legacyRecipes) {
+      if (!recipe.id || !recipe.sourceImageUrl) continue
+
+      const stored = await storeRecipeImageDataUrl(recipe.sourceImageUrl)
+
+      await db.recipes.update(recipe.id, {
+        sourceImageUrl: undefined,
+        sourceImageId: stored.sourceImageId,
+        sourceImageMimeType: stored.sourceImageMimeType,
+      })
+    }
+
+    if (legacyRecipes.length > 0) {
+      await loadRecipes()
+    }
+  }
+
+  async function uploadSnapshotImagesToNas(
+    data: BackupData,
+    cleanUrl: string,
+    cleanKey: string,
+  ) {
+    const imageIds = Array.from(
+      new Set(
+        data.recipes
+          .map((recipe) => recipe.sourceImageId)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    )
+
+    if (imageIds.length === 0) return
+
+    const separator = cleanUrl.includes('?') ? '&' : '?'
+    const missingIds: string[] = []
+
+    for (let offset = 0; offset < imageIds.length; offset += 250) {
+      const batch = imageIds.slice(offset, offset + 250)
+      const missingResponse = await fetch(
+        `${cleanUrl}${separator}action=images-missing`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Kochwerk-Key': cleanKey,
+          },
+          body: JSON.stringify({ ids: batch }),
+        },
+      )
+
+      const missingResult = await readNasJson<{
+        ok?: boolean
+        missing?: string[]
+        error?: string
+      }>(missingResponse)
+
+      if (
+        !missingResponse.ok ||
+        !missingResult.ok ||
+        !Array.isArray(missingResult.missing)
+      ) {
+        throw new Error(
+          missingResult.error ??
+            'Der NAS konnte den Bildbestand nicht prüfen.',
+        )
+      }
+
+      missingIds.push(...missingResult.missing)
+    }
+
+    for (const storageId of missingIds) {
+      const asset = await db.recipeAssets.get(storageId)
+
+      if (!asset) {
+        throw new Error(`Das Bild ${storageId.slice(0, 12)} fehlt auf diesem Gerät.`)
+      }
+
+      const uploadResponse = await fetch(
+        `${cleanUrl}${separator}action=image-upload&id=${encodeURIComponent(storageId)}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': asset.mimeType,
+            'X-Kochwerk-Key': cleanKey,
+          },
+          body: asset.blob,
+        },
+      )
+
+      const uploadResult = await readNasJson<{
+        ok?: boolean
+        error?: string
+      }>(uploadResponse)
+
+      if (!uploadResponse.ok || !uploadResult.ok) {
+        throw new Error(
+          uploadResult.error ?? `Bild-Upload fehlgeschlagen (HTTP ${uploadResponse.status}).`,
+        )
+      }
     }
   }
 
@@ -1296,6 +1487,8 @@ function App() {
           return
         }
 
+        await uploadSnapshotImagesToNas(localData, cleanUrl, cleanKey)
+
         const pushResponse =
           await fetch(
             `${cleanUrl}${separator}action=push`,
@@ -1436,6 +1629,8 @@ function App() {
         localChanged &&
         !nasChanged
       ) {
+        await uploadSnapshotImagesToNas(localData, cleanUrl, cleanKey)
+
         const pushResponse =
           await fetch(
             `${cleanUrl}${separator}action=push`,
@@ -1746,19 +1941,14 @@ function App() {
     )
 
     try {
-      const payload: BackupData = {
-        app: 'Kochwerk',
-        backupVersion: 1,
-        createdAt: new Date().toISOString(),
-        recipes,
-        categories,
-        collections,
-      }
+      const payload = await readLocalSnapshot()
 
       const separator =
         cleanUrl.includes('?')
           ? '&'
           : '?'
+
+      await uploadSnapshotImagesToNas(payload, cleanUrl, cleanKey)
 
       const response =
         await fetch(
@@ -2021,7 +2211,7 @@ function App() {
         backupVersion: 1,
         createdAt:
           new Date().toISOString(),
-        recipes,
+        recipes: await recipesForPortableBackup(recipes),
         categories,
         collections,
       }
@@ -2133,12 +2323,31 @@ function App() {
     }
   }
 
-  function createBackup() {
+  async function recipesForPortableBackup(sourceRecipes: Recipe[]) {
+    return Promise.all(
+      sourceRecipes.map(async (recipe) => {
+        if (!recipe.sourceImageId) return recipe
+
+        const blob = await getRecipeImageBlob(recipe.sourceImageId)
+
+        if (!blob) return recipe
+
+        return {
+          ...recipe,
+          sourceImageUrl: await readFileAsDataUrl(blob),
+          sourceImageId: undefined,
+          sourceImageMimeType: undefined,
+        }
+      }),
+    )
+  }
+
+  async function createBackup() {
     const backup: BackupData = {
       app: 'Kochwerk',
       backupVersion: 1,
       createdAt: new Date().toISOString(),
-      recipes,
+      recipes: await recipesForPortableBackup(recipes),
       categories,
       collections,
     }
@@ -2964,9 +3173,7 @@ function App() {
         )
 
       if (!context) {
-        return readFileAsDataUrl(
-          blob,
-        )
+        return blob
       }
 
       context.fillStyle =
@@ -2993,10 +3200,19 @@ function App() {
         height,
       )
 
-      return canvas.toDataURL(
-        'image/jpeg',
-        RECIPE_IMAGE_JPEG_QUALITY,
-      )
+      return new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (compressed) => {
+            if (compressed) {
+              resolve(compressed)
+            } else {
+              reject(new Error('Bildkomprimierung fehlgeschlagen.'))
+            }
+          },
+          'image/jpeg',
+          RECIPE_IMAGE_JPEG_QUALITY,
+        )
+      })
     } finally {
       URL.revokeObjectURL(
         objectUrl,
@@ -3011,16 +3227,25 @@ function App() {
       value?.trim() ?? ''
 
     if (
-      !imageUrl ||
-      imageUrl.startsWith(
-        'data:',
-      )
+      !imageUrl
     ) {
       return {
-        imageUrl:
-          imageUrl || undefined,
-        storedPermanently:
-          Boolean(imageUrl),
+        sourceImageUrl: undefined,
+        sourceImageId: undefined,
+        sourceImageMimeType: undefined,
+        storedPermanently: false,
+      }
+    }
+
+    if (imageUrl.startsWith('data:')) {
+      const stored = await storeRecipeImageBlob(
+        await compressRecipeImage(await dataUrlToBlob(imageUrl)),
+      )
+
+      return {
+        sourceImageUrl: undefined,
+        ...stored,
+        storedPermanently: true,
       }
     }
 
@@ -3062,11 +3287,13 @@ function App() {
         )
       }
 
+      const stored = await storeRecipeImageBlob(
+        await compressRecipeImage(blob),
+      )
+
       return {
-        imageUrl:
-          await compressRecipeImage(
-            blob,
-          ),
+        sourceImageUrl: undefined,
+        ...stored,
         storedPermanently: true,
       }
     } catch (error) {
@@ -3076,7 +3303,9 @@ function App() {
       )
 
       return {
-        imageUrl,
+        sourceImageUrl: imageUrl,
+        sourceImageId: undefined,
+        sourceImageMimeType: undefined,
         storedPermanently: false,
       }
     }
@@ -6421,7 +6650,11 @@ function App() {
           undefined,
 
         sourceImageUrl:
-          preparedImage.imageUrl,
+          preparedImage.sourceImageUrl,
+        sourceImageId:
+          preparedImage.sourceImageId,
+        sourceImageMimeType:
+          preparedImage.sourceImageMimeType,
 
         imageIds: [],
 
@@ -6434,7 +6667,7 @@ function App() {
       setSaveStatus('saved')
 
       if (
-        preparedImage.imageUrl &&
+        preparedImage.sourceImageUrl &&
         !preparedImage.storedPermanently
       ) {
         setImportMessage(
@@ -6643,6 +6876,7 @@ function App() {
       selectedRecipe.sourceImageUrl ??
         '',
     )
+    setEditImageChanged(false)
 
     setEditFavorite(
       selectedRecipe.favorite ??
@@ -6677,6 +6911,7 @@ function App() {
         typeof reader.result ===
         'string'
       ) {
+        setEditImageChanged(true)
         setEditImageUrl(
           reader.result,
         )
@@ -6705,6 +6940,7 @@ function App() {
     }
 
     if (dropped.type === 'url') {
+      setEditImageChanged(true)
       setEditImageUrl(
         dropped.url,
       )
@@ -6719,6 +6955,7 @@ function App() {
         typeof reader.result ===
         'string'
       ) {
+        setEditImageChanged(true)
         setEditImageUrl(
           reader.result,
         )
@@ -6739,10 +6976,16 @@ function App() {
   async function saveEdit() {
     if (!selectedRecipe?.id) return
 
-    const preparedImage =
-      await makeRecipeImagePermanent(
-        editImageUrl,
-      )
+    const preparedImage = editImageChanged
+      ? await makeRecipeImagePermanent(editImageUrl)
+      : {
+          sourceImageUrl: selectedRecipe.sourceImageUrl,
+          sourceImageId: selectedRecipe.sourceImageId,
+          sourceImageMimeType: selectedRecipe.sourceImageMimeType,
+          storedPermanently: Boolean(
+            selectedRecipe.sourceImageId || selectedRecipe.sourceImageUrl,
+          ),
+        }
 
     const ingredients =
       editIngredients
@@ -6807,7 +7050,11 @@ function App() {
           undefined,
 
         sourceImageUrl:
-          preparedImage.imageUrl,
+          preparedImage.sourceImageUrl,
+        sourceImageId:
+          preparedImage.sourceImageId,
+        sourceImageMimeType:
+          preparedImage.sourceImageMimeType,
 
         favorite:
           editFavorite,
@@ -6840,7 +7087,7 @@ function App() {
     )
 
     if (
-      preparedImage.imageUrl &&
+      preparedImage.sourceImageUrl &&
       !preparedImage.storedPermanently
     ) {
       window.alert(
@@ -6993,7 +7240,11 @@ function App() {
           undefined,
 
         sourceImageUrl:
-          preparedImage.imageUrl,
+          preparedImage.sourceImageUrl,
+        sourceImageId:
+          preparedImage.sourceImageId,
+        sourceImageMimeType:
+          preparedImage.sourceImageMimeType,
 
         imageIds: [],
 
@@ -7021,7 +7272,7 @@ function App() {
     }
 
     if (
-      preparedImage.imageUrl &&
+      preparedImage.sourceImageUrl &&
       !preparedImage.storedPermanently
     ) {
       window.alert(
@@ -8186,15 +8437,14 @@ function App() {
                   )
                 }
               >
-                {recipe.sourceImageUrl &&
+                {(recipe.sourceImageId || recipe.sourceImageUrl) &&
                 (!recipe.id ||
                   !brokenRecipeImages.has(
                     recipe.id,
                   )) ? (
-                  <img
-                    src={
-                      recipe.sourceImageUrl
-                    }
+                  <RecipeImageView
+                    key={recipe.sourceImageId ?? recipe.sourceImageUrl}
+                    recipe={recipe}
                     alt={
                       recipe.title
                     }
@@ -8685,6 +8935,26 @@ function App() {
   async function getRecipeShareImageFile(
     recipe: Recipe,
   ): Promise<File | null> {
+    if (recipe.sourceImageId) {
+      const storedBlob = await resolveRecipeImageBlob(recipe.sourceImageId)
+
+      if (!storedBlob) return null
+
+      const extension = storedBlob.type.includes('png')
+        ? 'png'
+        : storedBlob.type.includes('webp')
+          ? 'webp'
+          : storedBlob.type.includes('gif')
+            ? 'gif'
+            : 'jpg'
+
+      return new File(
+        [storedBlob],
+        `kochwerk-${safeFileName(recipe.title)}.${extension}`,
+        { type: storedBlob.type || 'image/jpeg' },
+      )
+    }
+
     const imageUrl =
       recipe.sourceImageUrl?.trim()
 
@@ -9354,16 +9624,15 @@ function App() {
                   </div>
                 </div>
 
-                {selectedRecipe.sourceImageUrl &&
+                {(selectedRecipe.sourceImageId || selectedRecipe.sourceImageUrl) &&
                   (!selectedRecipe.id ||
                     !brokenRecipeImages.has(
                       selectedRecipe.id,
                     )) && (
-                  <img
+                  <RecipeImageView
+                    key={selectedRecipe.sourceImageId ?? selectedRecipe.sourceImageUrl}
+                    recipe={selectedRecipe}
                     className="print-recipe-image"
-                    src={
-                      selectedRecipe.sourceImageUrl
-                    }
                     alt=""
                     onError={() => {
                       if (!selectedRecipe.id) return
@@ -9547,15 +9816,14 @@ function App() {
               </div>
             )}
 
-            {selectedRecipe.sourceImageUrl &&
+            {(selectedRecipe.sourceImageId || selectedRecipe.sourceImageUrl) &&
               (!selectedRecipe.id ||
                 !brokenRecipeImages.has(
                   selectedRecipe.id,
                 )) && (
-              <img
-                src={
-                  selectedRecipe.sourceImageUrl
-                }
+              <RecipeImageView
+                key={selectedRecipe.sourceImageId ?? selectedRecipe.sourceImageUrl}
+                recipe={selectedRecipe}
                 alt={
                   selectedRecipe.title
                 }
@@ -14445,9 +14713,10 @@ function App() {
                         editImageUrl
                       }
                       onChange={(event) =>
-                        setEditImageUrl(
-                          event.target.value,
-                        )
+                        {
+                          setEditImageChanged(true)
+                          setEditImageUrl(event.target.value)
+                        }
                       }
                       placeholder="https://..."
                     />
@@ -14476,9 +14745,34 @@ function App() {
                         style={{
                           marginTop: '10px',
                         }}
-                        onClick={() =>
+                        onClick={() => {
+                          setEditImageChanged(true)
                           setEditImageUrl('')
-                        }
+                        }}
+                      >
+                        🗑️ Bild entfernen
+                      </button>
+                    </div>
+                  )}
+
+                  {!editImageChanged &&
+                    selectedRecipe.sourceImageId && (
+                    <div style={{ marginTop: '10px' }}>
+                      <RecipeImageView
+                        key={selectedRecipe.sourceImageId}
+                        recipe={selectedRecipe}
+                        alt="Vorschau"
+                        className="recipe-detail-image"
+                      />
+
+                      <button
+                        className="delete-button"
+                        type="button"
+                        style={{ marginTop: '10px' }}
+                        onClick={() => {
+                          setEditImageChanged(true)
+                          setEditImageUrl('')
+                        }}
                       >
                         🗑️ Bild entfernen
                       </button>

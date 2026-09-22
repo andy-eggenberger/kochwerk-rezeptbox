@@ -118,7 +118,7 @@ type OcrPageData = {
   }> | null
 }
 
-const APP_VERSION = '0.10.15'
+const APP_VERSION = '0.10.16'
 
 const RECIPE_IMAGE_MAX_EDGE = 1400
 const RECIPE_IMAGE_JPEG_QUALITY = 0.82

@@ -33,12 +33,22 @@ export interface Recipe {
   sourceName?: string
   videoUrl?: string
   sourceImageUrl?: string
+  sourceImageId?: string
+  sourceImageMimeType?: string
   imageIds: number[]
 
   favorite: boolean
 
   createdAt: Date
   updatedAt: Date
+}
+
+export interface RecipeAsset {
+  storageId: string
+  blob: Blob
+  mimeType: string
+  byteSize: number
+  createdAt: Date
 }
 
 export interface Category {
@@ -70,6 +80,7 @@ export class KochwerkDatabase extends Dexie {
   categories!: Table<Category, number>
   collections!: Table<Collection, number>
   images!: Table<RecipeImage, number>
+  recipeAssets!: Table<RecipeAsset, string>
 
   constructor() {
     super('kochwerkDB')
@@ -80,6 +91,15 @@ export class KochwerkDatabase extends Dexie {
       categories: '++id, name, sortOrder',
       collections: '++id, name, sortOrder',
       images: '++id, recipeId, createdAt',
+    })
+
+    this.version(3).stores({
+      recipes:
+        '++id, title, favorite, *categoryIds, *collectionIds, createdAt, updatedAt',
+      categories: '++id, name, sortOrder',
+      collections: '++id, name, sortOrder',
+      images: '++id, recipeId, createdAt',
+      recipeAssets: '&storageId, createdAt',
     })
   }
 }

@@ -434,6 +434,11 @@ function App() {
     recipeCount: number
     categoryCount: number
     collectionCount: number
+    storedImageCount: number
+    storedImageRecipeCount: number
+    externalImageCount: number
+    embeddedImageCount: number
+    missingImageCount: number
     updatedAt: string | null
   } | null>(null)
   const [nasPulledData, setNasPulledData] =
@@ -2104,12 +2109,38 @@ function App() {
           result.exists &&
           result.data
         ) {
-          const recipeCount =
-            Array.isArray(
-              result.data.recipes,
-            )
-              ? result.data.recipes.length
-              : 0
+          const nasRecipes =
+            Array.isArray(result.data.recipes)
+              ? result.data.recipes as Recipe[]
+              : []
+
+          const recipeCount = nasRecipes.length
+
+          const storedImageIds = new Set(
+            nasRecipes
+              .map((recipe) => recipe.sourceImageId)
+              .filter((value): value is string => Boolean(value)),
+          )
+
+          const storedImageRecipeCount = nasRecipes.filter(
+            (recipe) => Boolean(recipe.sourceImageId),
+          ).length
+
+          const externalImageCount = nasRecipes.filter(
+            (recipe) =>
+              Boolean(recipe.sourceImageUrl?.match(/^https?:\/\//i)),
+          ).length
+
+          const embeddedImageCount = nasRecipes.filter(
+            (recipe) =>
+              Boolean(recipe.sourceImageUrl?.startsWith('data:')),
+          ).length
+
+          const missingImageCount = nasRecipes.filter(
+            (recipe) =>
+              !recipe.sourceImageId &&
+              !recipe.sourceImageUrl,
+          ).length
 
           const categoryCount =
             Array.isArray(
@@ -2129,6 +2160,11 @@ function App() {
             recipeCount,
             categoryCount,
             collectionCount,
+            storedImageCount: storedImageIds.size,
+            storedImageRecipeCount,
+            externalImageCount,
+            embeddedImageCount,
+            missingImageCount,
             updatedAt:
               result.updatedAt ?? null,
           })
@@ -11746,6 +11782,48 @@ function App() {
                     <div>
                       {nasPreview.collectionCount}{' '}
                       Sammlungen
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: '10px',
+                        paddingTop: '10px',
+                        borderTop: '1px solid #e5ded5',
+                      }}
+                    >
+                      <strong>Bilddiagnose</strong>
+
+                      <div>
+                        {nasPreview.storedImageCount}{' '}
+                        unterschiedliche Bilder dauerhaft auf dem NAS
+                      </div>
+
+                      <div>
+                        {nasPreview.storedImageRecipeCount}{' '}
+                        Rezepte mit NAS-Bild
+                      </div>
+
+                      <div>
+                        {nasPreview.externalImageCount}{' '}
+                        Rezepte mit extern verknüpftem Bild
+                      </div>
+
+                      <div>
+                        {nasPreview.missingImageCount}{' '}
+                        Rezepte ohne Bild
+                      </div>
+
+                      {nasPreview.embeddedImageCount > 0 && (
+                        <div
+                          style={{
+                            color: '#9a5b24',
+                            fontWeight: 700,
+                          }}
+                        >
+                          ⚠️ {nasPreview.embeddedImageCount}{' '}
+                          Bilder sind noch in den Rezeptdaten eingebettet
+                        </div>
+                      )}
                     </div>
 
                     {nasPreview.updatedAt && (

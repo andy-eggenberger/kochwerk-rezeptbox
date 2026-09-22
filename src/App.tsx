@@ -33,7 +33,6 @@ import {
   getRecipeImageBlob,
   resolveRecipeImageBlob,
   storeRecipeImageBlob,
-  storeRecipeImageDataUrl,
 } from './db/recipeAssets'
 
 import './App.css'
@@ -118,7 +117,7 @@ type OcrPageData = {
   }> | null
 }
 
-const APP_VERSION = '0.10.16'
+const APP_VERSION = '0.10.17'
 
 const RECIPE_IMAGE_MAX_EDGE = 1400
 const RECIPE_IMAGE_JPEG_QUALITY = 0.82
@@ -1154,20 +1153,28 @@ function App() {
       .filter(
         (recipe) =>
           !recipe.sourceImageId &&
-          Boolean(recipe.sourceImageUrl?.startsWith('data:')),
+          Boolean(
+            recipe.sourceImageUrl?.startsWith('data:') ||
+            recipe.sourceImageUrl?.match(/^https?:\/\//i),
+          ),
       )
       .toArray()
 
     for (const recipe of legacyRecipes) {
       if (!recipe.id || !recipe.sourceImageUrl) continue
 
-      const stored = await storeRecipeImageDataUrl(recipe.sourceImageUrl)
+      const stored = await makeRecipeImagePermanent(
+        recipe.sourceImageUrl,
+      )
+
+      if (!stored.sourceImageId) continue
 
       await db.recipes.update(recipe.id, {
         sourceImageUrl: undefined,
         sourceImageId: stored.sourceImageId,
         sourceImageMimeType: stored.sourceImageMimeType,
       })
+
     }
 
     if (legacyRecipes.length > 0) {

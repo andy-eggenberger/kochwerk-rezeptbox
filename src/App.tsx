@@ -16,6 +16,8 @@ import {
   createWorker,
 } from 'tesseract.js'
 
+import JSZip from 'jszip'
+
 import {
   importRecipe,
   type ImportedRecipe,
@@ -117,7 +119,7 @@ type OcrPageData = {
   }> | null
 }
 
-const APP_VERSION = '0.10.17'
+const APP_VERSION = '0.10.18'
 
 const RECIPE_IMAGE_MAX_EDGE = 1400
 const RECIPE_IMAGE_JPEG_QUALITY = 0.82
@@ -2385,59 +2387,135 @@ function App() {
     )
   }
 
-  async function createBackup() {
-    const backup: BackupData = {
-      app: 'Kochwerk',
-      backupVersion: 1,
-      createdAt: new Date().toISOString(),
-      recipes: await recipesForPortableBackup(recipes),
-      categories,
-      collections,
+  function imageExtension(mimeType: string) {
+    const extensions: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/gif': 'gif',
     }
 
-    const json = JSON.stringify(
-      backup,
-      null,
-      2,
-    )
+    return extensions[mimeType.toLowerCase()] ?? 'jpg'
+  }
 
-    const blob = new Blob(
-      [json],
-      {
-        type: 'application/json',
-      },
-    )
+  function imageMimeType(extension: string) {
+    const mimeTypes: Record<string, string> = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      webp: 'image/webp',
+      gif: 'image/gif',
+    }
 
-    const url =
-      URL.createObjectURL(blob)
+    return mimeTypes[extension.toLowerCase()] ?? 'image/jpeg'
+  }
 
-    const now = new Date()
-
-    const date =
-      `${now.getFullYear()}-` +
-      `${String(now.getMonth() + 1).padStart(2, '0')}-` +
-      `${String(now.getDate()).padStart(2, '0')}`
-
-    const time =
-      `${String(now.getHours()).padStart(2, '0')}-` +
-      `${String(now.getMinutes()).padStart(2, '0')}`
-
-    const link =
-      document.createElement('a')
+  function downloadBlob(blob: Blob, fileName: string) {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
 
     link.href = url
-    link.download =
-      `Kochwerk-Sicherung_${date}_${time}.json`
-
+    link.download = fileName
     document.body.appendChild(link)
     link.click()
     link.remove()
-
     URL.revokeObjectURL(url)
+  }
 
-    setBackupMessage(
-      `Sicherung erstellt: ${recipes.length} Rezepte, ${categories.length} Kategorien und ${collections.length} Sammlungen.`,
-    )
+  async function createBackup() {
+    try {
+      setBackupMessage(
+        'Vollständige ZIP-Sicherung wird erstellt …',
+      )
+
+      const backup = await readLocalSnapshot()
+      const zip = new JSZip()
+
+      zip.file(
+        'kochwerk.json',
+        JSON.stringify(backup, null, 2),
+      )
+
+      const imageIds = Array.from(
+        new Set(
+          backup.recipes
+            .map((recipe) => recipe.sourceImageId)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      )
+
+      for (const storageId of imageIds) {
+        const blob = await resolveRecipeImageBlob(storageId)
+
+        if (!blob) {
+          throw new Error(
+            `Das Bild ${storageId.slice(0, 12)} konnte nicht gesichert werden.`,
+          )
+        }
+
+        const extension = imageExtension(blob.type)
+        zip.file(`bilder/${storageId}.${extension}`, blob)
+      }
+
+      const createdAt = new Date(backup.createdAt)
+      const localDate = createdAt.toLocaleString('de-CH')
+
+      zip.file(
+        'SICHERUNG-INFO.txt',
+        [
+          'Kochwerk – vollständige externe Sicherung',
+          '',
+          `Erstellt: ${localDate}`,
+          `Kochwerk-Version: ${APP_VERSION}`,
+          `Rezepte: ${backup.recipes.length}`,
+          `Kategorien: ${backup.categories.length}`,
+          `Sammlungen: ${backup.collections.length}`,
+          `Bilder: ${imageIds.length}`,
+          '',
+          'Enthalten sind alle Rezeptangaben, Beschreibungen, Zutaten,',
+          'Zubereitungsschritte, Notizen, Kategorien, Sammlungen, Favoriten',
+          'und sämtliche dauerhaft gespeicherten Rezeptbilder.',
+          '',
+          'Wiederherstellung:',
+          '1. Kochwerk öffnen und auf „Sicherung“ klicken.',
+          '2. „Zusammenführen“ oder „Komplett ersetzen“ wählen.',
+          '3. Diese ZIP-Datei auswählen.',
+          '',
+          'Die Dateien in dieser ZIP nicht umbenennen oder verändern.',
+        ].join('\n'),
+      )
+
+      const blob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 },
+      })
+
+      const date =
+        `${createdAt.getFullYear()}-` +
+        `${String(createdAt.getMonth() + 1).padStart(2, '0')}-` +
+        `${String(createdAt.getDate()).padStart(2, '0')}`
+
+      const time =
+        `${String(createdAt.getHours()).padStart(2, '0')}-` +
+        `${String(createdAt.getMinutes()).padStart(2, '0')}`
+
+      downloadBlob(
+        blob,
+        `Kochwerk-Komplettsicherung_${date}_${time}.zip`,
+      )
+
+      setBackupMessage(
+        `✓ ZIP-Komplettsicherung erstellt: ${backup.recipes.length} Rezepte, ${backup.categories.length} Kategorien, ${backup.collections.length} Sammlungen und ${imageIds.length} Bilder.`,
+      )
+    } catch (error) {
+      console.error('Sicherung fehlgeschlagen:', error)
+      setBackupMessage(
+        error instanceof Error
+          ? `Sicherung fehlgeschlagen: ${error.message}`
+          : 'Die vollständige Sicherung konnte nicht erstellt werden.',
+      )
+    }
   }
 
   async function restoreBackup(
@@ -2455,11 +2533,48 @@ function App() {
         'Sicherung wird geprüft …',
       )
 
-      const text =
-        await file.text()
+      const isZip =
+        file.name.toLowerCase().endsWith('.zip') ||
+        file.type === 'application/zip'
 
-      const parsed =
-        JSON.parse(text) as Partial<BackupData>
+      let parsed: Partial<BackupData>
+      const backupImages = new Map<string, Blob>()
+
+      if (isZip) {
+        const zip = await JSZip.loadAsync(file)
+        const dataFile = zip.file('kochwerk.json')
+
+        if (!dataFile) {
+          throw new Error('In der ZIP fehlt die Datei kochwerk.json.')
+        }
+
+        parsed = JSON.parse(
+          await dataFile.async('text'),
+        ) as Partial<BackupData>
+
+        const imagePattern =
+          /^bilder\/([a-f0-9]{64})\.(jpg|jpeg|png|webp|gif)$/i
+
+        for (const entry of Object.values(zip.files)) {
+          if (entry.dir) continue
+
+          const match = entry.name.match(imagePattern)
+          if (!match) continue
+
+          const storageId = match[1].toLowerCase()
+          const mimeType = imageMimeType(match[2])
+          const contents = await entry.async('blob')
+
+          backupImages.set(
+            storageId,
+            new Blob([contents], { type: mimeType }),
+          )
+        }
+      } else {
+        parsed = JSON.parse(
+          await file.text(),
+        ) as Partial<BackupData>
+      }
 
       if (
         parsed.app !== 'Kochwerk' ||
@@ -2477,6 +2592,26 @@ function App() {
       const backupRecipes = parsed.recipes
       const backupCategories = parsed.categories
       const backupCollections = parsed.collections
+
+      if (isZip) {
+        const requiredImageIds = Array.from(
+          new Set(
+            backupRecipes
+              .map((recipe) => recipe.sourceImageId)
+              .filter((value): value is string => Boolean(value)),
+          ),
+        )
+
+        const missingImageIds = requiredImageIds.filter(
+          (storageId) => !backupImages.has(storageId),
+        )
+
+        if (missingImageIds.length > 0) {
+          throw new Error(
+            `Die ZIP ist unvollständig: ${missingImageIds.length} Bilddatei(en) fehlen.`,
+          )
+        }
+      }
 
       const restoredRecipes =
         backupRecipes.map((recipe) => ({
@@ -2527,6 +2662,16 @@ function App() {
             'Wiederherstellung abgebrochen.',
           )
           return
+        }
+
+        for (const [storageId, blob] of backupImages) {
+          const stored = await storeRecipeImageBlob(blob)
+
+          if (stored.sourceImageId !== storageId) {
+            throw new Error(
+              'Eine Bilddatei in der ZIP ist beschädigt oder verändert.',
+            )
+          }
         }
 
         await db.transaction(
@@ -2584,6 +2729,16 @@ function App() {
             'Zusammenführen abgebrochen.',
           )
           return
+        }
+
+        for (const [storageId, blob] of backupImages) {
+          const stored = await storeRecipeImageBlob(blob)
+
+          if (stored.sourceImageId !== storageId) {
+            throw new Error(
+              'Eine Bilddatei in der ZIP ist beschädigt oder verändert.',
+            )
+          }
         }
 
         let addedRecipes = 0
@@ -2756,7 +2911,9 @@ function App() {
       )
 
       setBackupMessage(
-        'Die Sicherung konnte nicht wiederhergestellt werden.',
+        error instanceof Error
+          ? `Die Sicherung konnte nicht wiederhergestellt werden: ${error.message}`
+          : 'Die Sicherung konnte nicht wiederhergestellt werden.',
       )
     }
   }
@@ -11946,10 +12103,7 @@ function App() {
                 lineHeight: 1.5,
               }}
             >
-              Sichere deine komplette
-              Kochwerk-Rezeptbox als Datei.
-              Enthalten sind Rezepte,
-              Kategorien und Sammlungen.
+              Erstelle eine vollständige ZIP-Sicherung zum externen Aufbewahren. Enthalten sind alle Rezepte mit Beschreibungen, Zutaten, Zubereitung und Notizen sowie Kategorien, Sammlungen, Favoriten und sämtliche Bilder.
             </p>
 
             <button
@@ -11957,7 +12111,7 @@ function App() {
               type="button"
               onClick={createBackup}
             >
-              💾 Sicherung erstellen
+              💾 ZIP-Komplettsicherung erstellen
             </button>
 
             <div
@@ -11978,7 +12132,7 @@ function App() {
                   lineHeight: 1.5,
                 }}
               >
-                Wähle zuerst, wie die Sicherung eingelesen werden soll.
+                Wähle zuerst, wie die Sicherung eingelesen werden soll. Neue ZIP-Komplettsicherungen und bisherige JSON-Sicherungen werden unterstützt.
               </p>
 
               <label
@@ -12059,7 +12213,7 @@ function App() {
 
               <input
                 type="file"
-                accept=".json,application/json"
+                accept=".zip,.json,application/zip,application/json"
                 onChange={
                   restoreBackup
                 }
